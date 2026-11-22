@@ -1,0 +1,22 @@
+# 构建产物
+/build/
+/dist/
+*.exe
+*.test
+*.prof
+
+# 本地临时
+/tmp/
+*.log
+.DS_Store
+Thumbs.db
+
+# MyGo
+/.mygo/
+mygo_windows_*.syso
+
+# 随 Nook 一起发布的微软 ConPTY
+!resources/OpenConsole.exe
+
+# 构建时从 LICENSE 拷来，随程序发布
+/resources/LICENSE.txt

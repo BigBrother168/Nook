@@ -1,0 +1,11 @@
+{
+  "name": "Nook",
+  "identifier": "app.nook.terminal",
+  "version": "1.0.0",
+  "copyright": "© 2026 BigBrother",
+  "publisher": "BigBrother",
+  "out": "build",
+  "windows": {
+    "installerInclude": "scripts/installer.nsh"
+  }
+}

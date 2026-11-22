@@ -1,0 +1,7 @@
+conpty.dll 和 OpenConsole.exe 来自微软官方 NuGet 包
+Microsoft.Windows.Console.ConPTY 1.25.260930003（2026-10-02 发布，x64），
+源码在 https://github.com/microsoft/terminal ，MIT 许可，
+Copyright (c) Microsoft Corporation。两个文件都带有微软的有效 Authenticode 签名。
+
+Nook 用它代替 Windows 自带的旧版 ConPTY：旧版会把程序的“同步输出”
+标记和内容拆开转发，Claude Code 这类全屏程序因此会闪烁。
