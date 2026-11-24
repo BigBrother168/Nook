@@ -52,11 +52,19 @@ The Files tab is the project's tree, with a dot on the files the AI just changed
 
 <img src="docs/screenshots/files-en.png" width="900" alt="The project's files on the right, changed ones with an orange dot; src/main.js open beside the terminal, highlighted">
 
-### Previews that leave no trace
+### A browser beside the terminals, leaving no trace
 
-Start a development server (as `npm run dev`) and the `localhost` addresses its terminal prints are listed under Previews: a click opens one beside the terminals, with back, forward, reload, and a button to widen it. The address bar takes addresses, or words to search with DuckDuckGo. Pages of the internet go only through the proxy, as in a private window: cookies and history stay in memory and go as Nook quits.
+Start a development server (as `npm run dev`) and the `localhost` addresses its terminal prints are listed under Previews: a click opens one beside the terminals. It browses as a browser does: several pages at once, each a small tab, back, forward, reload, an address bar that takes addresses, or words to search with DuckDuckGo. Put a page away and it stays as it was, a click in the tab bar away.
+
+Pages of the internet go only through the proxy, as in a private window: cookies and history stay in memory and go as Nook quits. Links that would open a window open a tab in Nook, not in the system's browser, around the proxy.
 
 <img src="docs/screenshots/preview-en.png" width="900" alt="npm run dev in a terminal, Vite printing localhost:5173; the Previews tab lists localhost:5173 and localhost:4173 on its own">
+
+### A look for the mood you are in
+
+Eight ready-made looks, each its own: Aurora, Tokyo night, Rosé, Forest, Campfire, Midnight, Mist and Paper. Each comes with its terminal colors and three more flavors that go with it: “Another flavor” when one gets old. Or make your own on the drawing board: the background is three colors; choose one, turn the direction, set how light the terminals are, and every other color follows, the window behind changing as you go. The settings show over the window; a click outside closes them.
+
+<img src="docs/screenshots/looks-en.png" width="900" alt="The settings over the window, at Appearance: eight ready-made looks (Aurora, Tokyo night, Rosé, Forest, Campfire, Midnight, Mist, Paper), then the drawing board, the accent and samples of terminal colors">
 
 ## Features
 
@@ -64,7 +72,7 @@ Start a development server (as `npm run dev`) and the `localhost` addresses its 
 - **What desktop apps give, in a terminal**: projects, past conversations, keeping or undoing changes, a file tree, a viewer for code, Markdown, pictures and videos, previews of `localhost` pages, in one window.
 - **Light**: a native program, not a web page in a frame; an installer of about 8 MB that opens at once. Quit Nook and no process it started is left.
 - **Handy**: tabs, splits, drag to reorder, find in a terminal (`Ctrl+Shift+F`), files dragged into a terminal, screenshots pasted to the AI, the tray, a command palette (`Ctrl+Shift+P`).
-- **Your look**: a few ready color schemes, over a hundred Ghostty terminal themes, and a board to recolor any part by clicking it.
+- **Your look**: eight ready-made looks, each with its terminal colors and three flavors; hundreds of Ghostty terminal themes; and a drawing board to make your own by dragging colors. The terminals float on the background, clean and calm.
 - **More than three tools**: Claude Code, Codex and Antigravity have their past conversations read; Gemini CLI, Qwen Code, Kimi CLI, OpenCode, Copilot CLI and more run inside too, their networking seen and guarded the same, and others can be added in the settings.
 - Chinese and English; PowerShell 7, Windows PowerShell, cmd and Git Bash. WSL opens too, but the AI tools in it are out of Nook's reach (see the questions below).
 
@@ -72,7 +80,7 @@ Start a development server (as `npm run dev`) and the `localhost` addresses its 
 
 - **Nook itself never goes online**: no statistics, no telemetry, no updates, no account. The “Nook” line of the network panel always says “Offline”.
 - Only buttons marked with a globe (continue a conversation, open a page of the internet, search) make an AI tool or a page connect, and none do while the network lock is on.
-- Pages of the internet open through the proxy only, as in a private window: cookies and history stay in memory and go as Nook quits.
+- Pages of the internet open through the proxy only, as in a private window: cookies and history stay in memory and go as Nook quits. Links that would open a window open in Nook, never in the system's browser.
 - The AI tools' conversations are read where they keep them, never changed, never sent anywhere.
 - Programs and scripts (exe, bat, ps1, js…) double-clicked in the file panel are shown, not run.
 - The settings are one plain file, `%APPDATA%\Nook\state.json`, to open and read; all the code is public (GPL-3.0).

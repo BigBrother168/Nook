@@ -28,12 +28,27 @@ type app struct {
 	st     config.Settings
 	shells []shell
 
-	tabs         []*tab
-	cur          int
-	pendingFocus *session // to get the focus in the next build
-	notice       string   // a problem to tell, shown above the terminals
-	nextID       int
-	noSave       bool // tests: keep the settings in memory
+	tabs          []*tab
+	cur           int
+	pendingFocus  *session             // to get the focus in the next build
+	group         string               // the project in use ("" for terminals of no project): its tabs show
+	lastTab       map[string]*tab      // the tab each project showed last
+	views         map[string]viewState // what each project showed beside its terminals
+	items         []viewItem           // what is open beside the terminals of the project in use
+	picked        string               // what the sidebar shows chosen: a terminal (termKey) or a conversation
+	settings      string               // the settings' dialog: "" closed, "settings", or "designer", the drawing board in it
+	winW, winH    float32              // the window's size, as the last frame laid it out
+	designFrom    bool                 // the drawing board was opened from the settings
+	endings       []*ending            // terminals ended, a few seconds to take back
+	toasts        []*toastNote         // notes at the bottom of the middle, the last showing
+	nextToast     int
+	termFocus     bool     // a terminal (or its find bar) has the keyboard, this frame
+	renaming      *session // the terminal whose name is being typed in its tab
+	renameText    string
+	renameFocused bool
+	notice        string // a problem to tell, shown above the terminals
+	nextID        int
+	noSave        bool // tests: keep the settings in memory
 
 	// start starts a terminal; newSession, or a test's.
 	start func(proj, dir string, sh shell) (*session, error)
@@ -41,7 +56,8 @@ type app struct {
 	net        netState // what the monitor last saw
 	live       live     // the terminals, for the monitor
 	shimDir    string   // the guards' folder, first in terminals' PATH
-	netOpen    bool     // the network panel shows
+	middleW    float32  // the middle's width, as the last frame laid it out
+	winDark    int      // the window buttons drawn for a dark title bar (1) or a light one (2)
 	requireSel bool     // the panel's "no proxy, no AI" switch
 
 	convs    convCache // titles and what was said, read from the tools' files
@@ -52,12 +68,17 @@ type app struct {
 	tray                         *mygo.Tray
 	trayState, trayTip, trayMenu string // what the tray shows, to change only what changed
 	toldTray                     bool   // the first time in the tray was told
+	closeAsking, closeRemember   bool   // the window's × asks tray or quit; remember the answer
 
 	proxyInput, toolInput string // what the settings' fields hold
 
 	themeKey      string          // what themeCache was made of
 	themeCache    *ui.Theme       // the window's theme as chosen
 	viewerMax     bool            // the viewer takes the whole middle
+	hidden        string          // what was put away beside the terminals: the tab bar's button brings it back
+	termBgVal     ui.Color        // the terminals' background, as termBg found it
+	termBgDark    bool            // for a dark window
+	termBgSet     bool            // and still so: the colors did not change since
 	layoutChanged bool            // a split moved: the settings are saved at the next tick
 	settingsTab   int             // the settings' section shown
 	themeQuery    string          // the search of Ghostty's themes
@@ -82,15 +103,22 @@ type app struct {
 	fileIndexes map[string]*fileIndex   // every file of a project, for finding
 
 	designPart  string     // the part of the look the drawing board colors
+	designFine  bool       // the board's fine way shows: part by part
+	quickStop   int        // the background's color the quick way moves: 0, 1, 2
+	designShade float64    // how light the look's terminals are, 0 to 1
 	designColor ui.Color   // its color, as the picker edits it
 	bgPath      string     // the picture behind the look, as loaded
 	bgBmp       *ui.Bitmap // and decoded
 	mdOpts      markdown.Options
 
-	web           *mygo.WebView // the previews' browser, made at the first
+	pages         []*webPage // the previews' browser's pages, each a tab beside the terminals
+	nextPage      int
+	webStarted    bool          // the browser started, at the first page
+	webSession    *mygo.Session // the pages' private session, in memory only
 	webProxy      string        // the proxy it took as it started
-	webURL        string        // the address it shows
 	webInput      string        // the address typed in the previews tab
+	webAddr       string        // the page's address bar, as typed
+	webAddrFocus  bool          // it had the keyboard, the last frame
 	loosePreviews []string      // the addresses of terminals of no project
 
 	probe *probe
@@ -98,7 +126,7 @@ type app struct {
 }
 
 // version is Nook's, as mygo.json says.
-const version = "1.0.0"
+const version = "1.5.0"
 
 func main() {
 	// One Nook: opened again, as from the Start menu while it sits in the
@@ -124,7 +152,9 @@ func main() {
 	}
 	a.start = a.newSession
 	a.mdOpts.OnLink = a.followLink
-	a.netOpen = os.Getenv("NOOK_PANEL") != "" // tests: open the network panel
+	if os.Getenv("NOOK_PANEL") != "" { // tests: open the network tab
+		a.side, a.sideTab = true, sideNet
+	}
 	if path := os.Getenv("NOOK_RAW"); path != "" {
 		a.raw.f, _ = os.Create(path)
 	}
@@ -155,13 +185,16 @@ func main() {
 			MinWidth:  640,
 			MinHeight: 360,
 			StateKey:  "main",
-			Content:   ui.View(a.view),
+			// Nook's top bar is the title bar, the window's buttons in it.
+			TitleBarStyle:  mygo.TitleBarHidden,
+			TitleBarHeight: topBarHeight,
+			Content:        ui.View(a.view),
 		})
 		// Closing the window ends every terminal: Nook keeps nothing running.
 		a.win.OnClose(a.onClose)
 		a.win.OnClosed(func() {
 			a.quitting = true
-			for _, s := range a.sessions() {
+			for _, s := range a.everySession() {
 				s.closed = true
 				a.live.remove(s)
 				s.term.Close()

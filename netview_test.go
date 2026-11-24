@@ -14,7 +14,7 @@ func TestRequireSwitch(t *testing.T) {
 	a := testApp()
 	a.st.SetRequireProxy(true)
 	a.requireSel = true
-	a.netOpen = true
+	a.side, a.sideTab = true, sideNet
 	tt := ui.NewTester(a.view, 1200, 800)
 	for range 5 {
 		tt.Frame()
@@ -31,18 +31,19 @@ func TestRequireSwitch(t *testing.T) {
 	}
 }
 
-// Without a tunnel, the panel suggests one; with one, it says so.
+// The network tab says whether a tunnel carries the internet, the
+// suggestion on hover.
 func TestTunTip(t *testing.T) {
 	a := testApp()
-	a.netOpen = true
+	a.side, a.sideTab = true, sideNet
 	tt := ui.NewTester(a.view, 1200, 800)
 	tt.Frame()
-	if !tt.HasText(tunTip(false)) {
-		t.Fatalf("no tunnel: no suggestion in %q", tt.Texts())
+	if !tt.HasText("虚拟网卡没开") {
+		t.Fatalf("no tunnel: %q", tt.Texts())
 	}
 	a.net.tunnels = []netguard.Adapter{{Name: "singbox_tun", Internet: true}}
 	tt.Frame()
-	if !tt.HasText("已开 · singbox_tun") || tt.HasText(tunTip(false)) {
+	if !tt.HasText("虚拟网卡已开") || tt.HasText("虚拟网卡没开") {
 		t.Fatalf("tunnel on: %q", tt.Texts())
 	}
 }
@@ -77,32 +78,32 @@ func TestRoutesText(t *testing.T) {
 // The panel says first whether the real IP shows; the top bar too.
 func TestIPVerdict(t *testing.T) {
 	a := testApp()
-	a.netOpen = true
+	a.side, a.sideTab = true, sideNet
 	tt := ui.NewTester(a.view, 1300, 900)
 	tt.Frame()
-	if !tt.HasText("现在没有 AI 在联网") || !tt.HasText("没有 AI 在运行") {
+	if !tt.HasText("现在没有 AI 在联网") || !tt.HasText("没用代理") {
 		t.Fatalf("nothing running: %q", tt.Texts())
 	}
 
 	a.openTab("", a.defaultShell())
 	s := a.focused()
-	a.viewing = "designer" // the fake terminal has nothing to draw
+	a.hideTab(a.current()) // the fake terminal has nothing to draw
 	a.net.ai = map[int]aiUse{s.id: {tools: []string{"codex"}, routes: netguard.Routes{netguard.ViaProxy: 3}}}
 	a.net.others = []otherAI{{pid: 9, name: "codex.exe", parent: "ChatGPT.exe", routes: netguard.Routes{netguard.ViaProxy: 1}}}
 	tt.Frame()
-	if !tt.HasText("✓ 真实 IP 没露出去") || !tt.HasText("AI 都走代理 · 1") {
+	if !tt.HasText("✓ 真实 IP 没露出去") || !tt.HasText("真实 IP 没露") {
 		t.Fatalf("all through the proxy: %q", tt.Texts())
 	}
 
 	a.net.others[0].routes[netguard.Direct] = 1
 	tt.Frame()
-	if !tt.HasText("⚠ 真实 IP 可能露出去了") || !tt.HasText("其他 AI 有直连 · 1 条") || !tt.HasText("codex · ChatGPT 桌面版：1 条连接没走代理") {
+	if !tt.HasText("⚠ 真实 IP 可能露出去了") || !tt.HasText("真实 IP 可能露了") || !tt.HasText("codex · ChatGPT 桌面版：1 条连接没走代理") {
 		t.Fatalf("direct elsewhere: %q", tt.Texts())
 	}
 
 	a.net.ai[s.id] = aiUse{tools: []string{"codex"}, routes: netguard.Routes{netguard.ViaProxy: 3, netguard.Direct: 2}}
 	tt.Frame()
-	if !tt.HasText("AI 有直连 · 2 条") || !tt.HasText("codex · "+a.projectLabel(s)+"：2 条连接没走代理") || !tt.HasText("结束 Nook 里的 AI") {
+	if !tt.HasText("真实 IP 可能露了") || !tt.HasText("codex · "+a.projectLabel(s)+"：2 条连接没走代理") || !tt.HasText("结束 Nook 里的 AI") {
 		t.Fatalf("direct in Nook: %q", tt.Texts())
 	}
 }

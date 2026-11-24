@@ -48,11 +48,15 @@ type Settings struct {
 	Theme     string `json:"theme,omitempty"`    // "light", "dark", or "" for the system's
 	FontSize  int    `json:"fontSize,omitempty"` // the terminals' text, in DIPs
 	Onboarded bool   `json:"onboarded"`          // the first run's welcome was seen
+	ToldHide  bool   `json:"toldHide,omitempty"` // putting a tab away was explained once
 
 	Palette   string `json:"palette,omitempty"`   // the window's colors: a palette's id, "ghostty:<theme>", or "" for the system's
 	Accent    string `json:"accent,omitempty"`    // "#rrggbb" over the palette's, or ""
 	TermTheme string `json:"termTheme,omitempty"` // a Ghostty theme for the terminals, or "" for the palette's
-	TermFont  string `json:"termFont,omitempty"`  // the terminals' font family, or "" for the system's monospaced one
+	// TermFlavors keeps, for each palette left, the terminals' theme it
+	// had, to have again as it is chosen again.
+	TermFlavors map[string]string `json:"termFlavors,omitempty"`
+	TermFont    string            `json:"termFont,omitempty"` // the terminals' font family, or "" for the system's monospaced one
 
 	SidebarWidth  float32            `json:"sidebarWidth,omitempty"`  // in DIPs
 	SidebarHidden bool               `json:"sidebarHidden,omitempty"` // the sidebar is hidden, the terminals taking its room
@@ -182,9 +186,12 @@ type Design struct {
 	TermFg     string `json:"termFg"`
 
 	// Gradient, when set, fills the window's background from Background
-	// to it, at GradientAngle degrees.
+	// to it (through Middle, when set), at GradientAngle degrees; Radial
+	// spreads it from a point instead, off the middle toward the angle.
 	Gradient      string  `json:"gradient,omitempty"`
+	Middle        string  `json:"middle,omitempty"`
 	GradientAngle float32 `json:"gradientAngle,omitempty"`
+	Radial        bool    `json:"radial,omitempty"`
 
 	// Image is a picture behind everything, a copy in Nook's folder.
 	Image        string  `json:"image,omitempty"`

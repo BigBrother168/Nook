@@ -117,8 +117,8 @@ func TestProjects(t *testing.T) {
 	a := testApp()
 	dir := t.TempDir()
 	a.addProject(dir)
-	a.addProject(dir + `\`) // the same folder: not twice
-	if len(a.st.Projects) != 1 || len(a.tabs) != 2 {
+	a.addProject(dir + `\`) // the same folder: not twice, and no second terminal
+	if len(a.st.Projects) != 1 || len(a.tabs) != 1 {
 		t.Fatalf("%d projects, %d tabs", len(a.st.Projects), len(a.tabs))
 	}
 	if s := a.focused(); s.proj != a.st.Projects[0].Path || s.dir != dir {
@@ -133,7 +133,7 @@ func TestProjects(t *testing.T) {
 		t.Fatal("split left the project")
 	}
 	a.removeProject(a.st.Projects[0].Path)
-	if len(a.st.Projects) != 0 || a.st.LastProject != "" || len(a.tabs) != 2 {
+	if len(a.st.Projects) != 0 || a.st.LastProject != "" || len(a.tabs) != 1 || a.focused() == nil {
 		t.Fatalf("after removing: %d projects, last %q, %d tabs", len(a.st.Projects), a.st.LastProject, len(a.tabs))
 	}
 }

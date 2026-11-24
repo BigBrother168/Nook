@@ -18,10 +18,43 @@ import (
 // The settings page, and the first run's welcome, which asks the same
 // few things.
 
-// openSettings shows the settings in the middle.
+// openSettings shows the settings, in a dialog over the window.
 func (a *app) openSettings() {
 	a.proxyInput, a.accentInput, a.fontInput = a.st.Proxy, a.st.Accent, a.st.TermFont
-	a.viewing = "settings"
+	a.settings = "settings"
+}
+
+// onPage reports whether the settings' dialog shows, the drawing board's
+// too.
+func (a *app) onPage() bool { return a.settings != "" }
+
+// leavePages closes the settings' dialog, whatever it shows; the window
+// was there behind it all along.
+func (a *app) leavePages() {
+	if a.settings == "" {
+		return
+	}
+	a.settings, a.designFrom = "", false
+	a.save()
+	if s := a.focused(); s != nil {
+		a.pendingFocus = s
+	}
+}
+
+// backButton is the “Back” at the top left of a dialog's page.
+func backButton(c *ui.Context, label string) bool {
+	t := c.Theme()
+	b := ui.ButtonBase(c).Label(label).Padding(5, 10, 5, 6).Radius(7)
+	if b.Hovered() {
+		b.Background(t.SurfaceHover)
+	}
+	b.Children(func() {
+		ui.Row(c).Gap(4).AlignItems(ui.Center).Children(func() {
+			ui.Icon(c, iconBack).FontSize(15)
+			ui.Text(c, label).FontSize(13)
+		})
+	})
+	return b.Clicked()
 }
 
 // applyLanguage sets the language of Nook's texts and of MyGo's own.
@@ -92,33 +125,94 @@ func (a *app) installedTools() []string {
 	return out
 }
 
-// choice is one of a few options, as buttons side by side.
+// choice is one of a few options, in one strip.
 func choice(c *ui.Context, value *string, options ...[2]string) bool {
+	sel, labels := -1, make([]string, len(options))
+	for i, o := range options {
+		labels[i] = o[1]
+		if *value == o[0] {
+			sel = i
+		}
+	}
+	i, changed := segmented(c, sel, labels...)
+	if changed {
+		*value = options[i][0]
+	}
+	return changed
+}
+
+// segmented is a few options in one strip, the one chosen lifted out of
+// it: the index chosen, and whether a click changed it.
+func segmented(c *ui.Context, sel int, labels ...string) (int, bool) {
 	t := c.Theme()
-	changed := false
-	ui.Row(c).Gap(4).Children(func() {
-		for _, o := range options {
-			c.Key(o[0])
-			b := ui.ButtonBase(c).Label(o[1]).Padding(5, 12).Radius(6).Border(1, t.Border)
-			if *value == o[0] {
-				b.Background(t.Selection)
-			} else if b.Hovered() {
-				b.Background(t.SurfaceHover)
+	out := sel
+	ui.Row(c).Padding(2).Gap(2).Radius(8).Background(t.Text.Alpha(0.06)).Children(func() {
+		for i, l := range labels {
+			c.Key(i)
+			b := ui.ButtonBase(c).Label(l).Height(26).PaddingX(12).Radius(6)
+			switch {
+			case i == sel && t.Dark:
+				b.Background(t.Text.Alpha(0.14))
+			case i == sel:
+				b.Background(ui.RGB(255, 255, 255)).Shadow(0, 1, 2, 0, ui.RGBA(0, 0, 0, 0.12))
+			case b.Hovered():
+				b.Background(t.Text.Alpha(0.05))
 			}
-			b.Children(func() { ui.Text(c, o[1]).FontSize(12) })
-			if b.Clicked() && *value != o[0] {
-				*value, changed = o[0], true
+			b.Children(func() {
+				txt := ui.Text(c, l).FontSize(12).SingleLine()
+				if i != sel {
+					txt.TextColor(t.TextMuted)
+				}
+			})
+			if b.Clicked() && i != sel {
+				out = i
 			}
 		}
 	})
-	return changed
+	return out, out != sel
+}
+
+// stepper is a number between − and +, in one piece: the number after a
+// click.
+func stepper(c *ui.Context, v int, label string) int {
+	t := c.Theme()
+	out := v
+	ui.Row(c).Radius(8).AlignItems(ui.Center).Background(t.Text.Alpha(0.06)).Children(func() {
+		step := func(sign, tip string, d int) {
+			b := ui.ButtonBase(c).Label(tip).Width(30).Height(28).Radius(8)
+			if b.Hovered() {
+				b.Background(t.Text.Alpha(0.06))
+			}
+			b.Children(func() { ui.Text(c, sign).FontSize(15) })
+			if b.Clicked() {
+				out = v + d
+			}
+		}
+		step("−", L("小一号", "Smaller"), -1)
+		ui.Text(c, itoa(v)).FontSize(13).MinWidth(24).TextAlign(ui.Center).Label(label)
+		step("+", L("大一号", "Larger"), 1)
+	})
+	return out
+}
+
+// settingRows counts the rows of the settings shown so far, that a line
+// parts each from the one above.
+var settingRows int
+
+// settingLine is the hairline over every row of the settings but the
+// first.
+func settingLine(c *ui.Context) {
+	if settingRows++; settingRows > 1 {
+		ui.Box(c).FillWidth().Height(1).Background(c.Theme().Border.Alpha(0.6))
+	}
 }
 
 // setting is a row of the settings: a label, what it does, its control.
 func setting(c *ui.Context, label, help string, control func()) {
 	t := c.Theme()
-	ui.Row(c).FillWidth().Gap(16).PaddingY(8).AlignItems(ui.Center).Children(func() {
-		ui.Column(c).Grow(1).Gap(2).Children(func() {
+	settingLine(c)
+	ui.Row(c).FillWidth().Gap(16).PaddingY(11).AlignItems(ui.Center).Children(func() {
+		ui.Column(c).Grow(1).Shrink(1).Gap(2).Children(func() {
 			ui.Text(c, label).FontSize(13)
 			if help != "" {
 				ui.Text(c, help).FontSize(12).TextColor(t.TextMuted)
@@ -126,6 +220,44 @@ func setting(c *ui.Context, label, help string, control func()) {
 		})
 		control()
 	})
+}
+
+// settingStack is a row of the settings whose control is too wide to sit
+// beside its label: under it.
+func settingStack(c *ui.Context, label, help string, body func()) {
+	t := c.Theme()
+	settingLine(c)
+	ui.Column(c).FillWidth().Gap(10).PaddingY(11).AlignItems(ui.Start).Children(func() {
+		ui.Column(c).Gap(2).Children(func() {
+			ui.Text(c, label).FontSize(13)
+			if help != "" {
+				ui.Text(c, help).FontSize(12).TextColor(t.TextMuted)
+			}
+		})
+		body()
+	})
+}
+
+// settingLink is a row of the settings that opens a page: an icon, what
+// the page is for, and ›.
+func settingLink(c *ui.Context, icon *ui.SVG, label, help string) bool {
+	t := c.Theme()
+	settingLine(c)
+	r := ui.Row(c).FillWidth().Gap(12).PaddingY(11).PaddingX(4).Radius(8).AlignItems(ui.Center).Cursor(ui.CursorPointer)
+	if r.Hovered() {
+		r.Background(t.Text.Alpha(0.04))
+	}
+	r.Children(func() {
+		ui.Icon(c, icon).FontSize(18).TextColor(t.Accent)
+		ui.Column(c).Grow(1).Shrink(1).Gap(2).Children(func() {
+			ui.Text(c, label).FontSize(13)
+			if help != "" {
+				ui.Text(c, help).FontSize(12).TextColor(t.TextMuted)
+			}
+		})
+		ui.Icon(c, iconChevronRight).FontSize(15).TextColor(t.TextMuted)
+	})
+	return r.Clicked()
 }
 
 func section(c *ui.Context, title string) {
@@ -144,20 +276,20 @@ func (a *app) languageChoice(c *ui.Context) {
 }
 
 func (a *app) shellChoice(c *ui.Context) {
-	var opts [][2]string
-	for _, sh := range a.shells {
-		opts = append(opts, [2]string{sh.ID, sh.Name})
-	}
-	setting(c, L("默认 shell", "Default shell"), L("新建终端时用的命令行", "What a new terminal runs"), func() {
-		id := a.defaultShell().ID
-		if choice(c, &id, opts...) {
-			a.setDefaultShell(id)
-		}
+	setting(c, L("新终端用", "New terminals run"), "", func() {
+		def := a.defaultShell()
+		ui.MenuButton(c, def.Name, func(m *ui.Menu) {
+			for _, sh := range a.shells {
+				if m.Item(sh.Name).Radio(sh.ID == def.ID).Chosen() {
+					a.setDefaultShell(sh.ID)
+				}
+			}
+		})
 	})
 }
 
 func (a *app) requireChoice(c *ui.Context) {
-	setting(c, requireLabel(), L("在国内一定要打开：没有代理也没有虚拟网卡时，AI 不能启动，不会用真实 IP 连出去。在国外不用代理就关掉。", "In China keep it on: with no proxy and no tunnel, AI tools cannot start, and nothing connects from your real IP. Outside China without a proxy, turn it off."), func() {
+	setting(c, requireLabel(), L("防止露出真实 IP。在国外不用代理就关掉。", "Keeps your real IP hidden. Without a proxy abroad, turn it off."), func() {
 		if ui.Switch(c, &a.requireSel).Label(requireLabel()).Changed() {
 			a.st.SetRequireProxy(a.requireSel)
 			a.save()
@@ -170,15 +302,15 @@ func shortcutList() [][2]string {
 	return [][2]string{
 		{"Ctrl+Shift+P", L("命令面板", "Command palette")},
 		{"Ctrl+Shift+T", L("新建终端", "New terminal")},
-		{"Ctrl+Shift+W", L("关闭终端", "Close the terminal")},
+		{"Ctrl+Shift+W", L("结束终端（5 秒内可撤销）", "End the terminal (undo within 5 seconds)")},
 		{"Ctrl+Shift+D / E", L("向右 / 向下分屏", "Split right / down")},
 		{"Ctrl+Tab / Ctrl+Shift+Tab", L("下一个 / 上一个标签", "Next / previous tab")},
 		{"Ctrl+Shift+S", L("显示 / 隐藏左侧栏", "Show / hide the sidebar")},
-		{"Ctrl+Shift+F", L("在终端里找（包括翻上去的内容）", "Find in the terminal, its scrollback too")},
-		{"Ctrl+Shift+B", L("右侧面板：改动、文件、预览", "Right panel: changes, files, previews")},
+		{"Ctrl+Shift+F", L("在终端里找", "Find in the terminal")},
+		{"Ctrl+Shift+B", L("右侧面板", "The right panel")},
 		{"Ctrl+Shift+,", L("设置", "Settings")},
-		{"Ctrl+C / Ctrl+V", L("有选中文字时复制 / 粘贴（截图粘贴给 AI）", "Copy a selection / paste (a screenshot goes to the AI)")},
-		{"Ctrl+= / Ctrl+- / Ctrl+0", L("放大 / 缩小 / 还原当前终端的字", "Larger / smaller / reset the terminal's text")},
+		{"Ctrl+C / Ctrl+V", L("复制 / 粘贴（截图也能贴给 AI）", "Copy / paste (screenshots too, for the AI)")},
+		{"Ctrl+= / Ctrl+- / Ctrl+0", L("终端的字放大 / 缩小 / 还原", "The terminal's text larger / smaller / reset")},
 	}
 }
 
@@ -219,14 +351,15 @@ func (a *app) welcome(c *ui.Context) {
 	ui.Modal(c, &open, func() {
 		ui.Column(c).Width(560).Gap(10).Children(func() {
 			ui.Text(c, L("欢迎使用 Nook", "Welcome to Nook")).FontSize(18).Bold()
-			ui.Text(c, L("替你管住联网的 AI 命令行终端：中间跑原版 Claude Code、Codex 这些 AI 命令行，联网的每一步都看得见、由你决定。", "The AI terminal that keeps its networking in your hands: the AI command-line tools themselves, as Claude Code and Codex, run inside; you see and decide every step they take online.")).FontSize(13).TextColor(t.TextMuted)
+			ui.Text(c, L("替你管住联网的 AI 终端。", "The AI terminal that keeps its networking in your hands.")).FontSize(13).TextColor(t.TextMuted)
+			settingRows = 0
 			a.languageChoice(c)
 			tools := a.installedTools()
-			found := L("没找到。装好 Claude Code、Codex 这类 AI 命令行后，在终端里直接输入它的名字就行。", "None found. Install an AI command-line tool, as Claude Code or Codex, then type its name in a terminal.")
+			found := L("没找到。装好后在终端里输入名字就行。", "None found. Once installed, type its name in a terminal.")
 			if len(tools) > 0 {
 				found = strings.Join(tools, L("、", ", "))
 			}
-			setting(c, L("找到的 AI 命令行", "AI tools found"), found, func() {})
+			setting(c, L("找到的 AI", "AI found"), found, func() {})
 			a.shellChoice(c)
 			p := a.net.proxy
 			netText := L("没找到代理", "No proxy found")
@@ -239,7 +372,7 @@ func (a *app) welcome(c *ui.Context) {
 			setting(c, L("网络", "Network"), netText, func() {})
 			a.requireChoice(c)
 			ui.Row(c).FillWidth().Padding(8, 0, 0, 0).Children(func() {
-				ui.Text(c, L("这些以后都能在设置里改（Ctrl+Shift+,）。", "Change these any time in the settings (Ctrl+Shift+,).")).FontSize(12).TextColor(t.TextMuted).Grow(1)
+				ui.Text(c, L("以后都能在设置里改", "All of this can change later, in the settings")).FontSize(12).TextColor(t.TextMuted).Grow(1)
 				if ui.PrimaryButton(c, L("开始使用", "Start")).Clicked() {
 					open = false
 				}

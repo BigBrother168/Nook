@@ -205,9 +205,7 @@ func (a *app) changesDone(proj, done string, err error) {
 		pc.done, pc.doneAt = done, time.Now()
 	}
 	a.refreshChanges(proj)
-	if a.diff != nil && a.diff.proj == proj {
-		a.closeMainView()
-	}
+	a.closeItems(func(it viewItem) bool { return it.diff != nil && it.diff.proj == proj })
 	if a.file != nil {
 		a.loadFile(a.file)
 	}
@@ -237,9 +235,15 @@ func (a *app) askUndoAll(proj string) {
 	if n == 1 {
 		title = L("撤销这个文件的改动？", "Undo the changes to this file?")
 	}
-	text := L("文件会变回 AI 改之前的样子，新建的文件会删掉。撤销后不能恢复。AI 还在干活的话，先让它停下。", "The files go back as they were before the AI; files it added go. This cannot be undone. If the AI is still working, stop it first.")
+	text := L("变回 AI 改之前，新建的会删掉，不能恢复。", "Back as before the AI; files it added go. This cannot be undone.")
 	if unsaved > 0 {
-		text += L("没有备份的大文件保持现在的样子。", " The large files not kept stay as they are.")
+		text += L("没备份的大文件不动。", " Large files not kept stay as they are.")
+	}
+	for _, s := range a.sessions() {
+		if s.proj == proj && s.status == "working" {
+			text += L("AI 还在干活，先让它停下。", " The AI is still working: stop it first.")
+			break
+		}
 	}
 	a.confirm = &confirmAsk{
 		title:  title,
@@ -283,9 +287,9 @@ func (a *app) keepFile(proj string, ch checkpoint.Change) {
 // askFileBack asks, then puts one file back as it was.
 func (a *app) askFileBack(proj string, base checkpoint.Checkpoint, ch checkpoint.Change) {
 	name := filepath.Base(ch.Path)
-	text := L("这个文件会变回 AI 改之前的样子，撤销后不能恢复。", "This file goes back as it was before the AI. This cannot be undone.")
+	text := L("变回 AI 改之前，不能恢复。", "Back as before the AI. This cannot be undone.")
 	if ch.Status == 'A' {
-		text = L("这个文件是 AI 新建的，撤销就是删掉它，删掉后不能恢复。", "The AI added this file: undoing deletes it, for good.")
+		text = L("AI 新建的文件，撤销就是删掉，不能恢复。", "The AI added it: undoing deletes it, for good.")
 	}
 	last := len(a.projChanges(proj).changes) == 1
 	a.confirm = &confirmAsk{
@@ -362,7 +366,7 @@ func (a *app) changesTab(c *ui.Context, proj string) {
 						title = pc.done
 					}
 					ui.Text(c, title).FontSize(13).Bold()
-					ui.Text(c, L("AI 改了文件后会列在这里，你可以保留，也可以撤销。", "Files the AI changes show here, to keep or to undo.")).FontSize(12).TextColor(t.TextMuted).Wrap()
+					ui.Text(c, L("AI 改的文件会列在这里。", "Files the AI changes show here.")).FontSize(12).TextColor(t.TextMuted).Wrap()
 				default:
 					ui.Column(c).Gap(2).Children(func() {
 						ui.Text(c, L("AI 改了 ", "The AI changed ")+count(len(pc.changes), "个文件", "file", "files")).FontSize(13).Bold()
@@ -377,7 +381,7 @@ func (a *app) changesTab(c *ui.Context, proj string) {
 					})
 					saved := pc.saved()
 					if saved < len(pc.changes) {
-						ui.Text(c, L("灰色的是没有备份的大文件（图片、视频、压缩包、数据这类），AI 动了它们只能看到，撤销不了。", "Grey: large files not kept (pictures, videos, archives, data). What the AI did to them shows, and cannot be undone.")).FontSize(11).TextColor(t.TextMuted).Wrap()
+						ui.Text(c, L("灰色：大文件没备份，撤销不了。", "Grey: large files not kept; they cannot be undone.")).FontSize(11).TextColor(t.TextMuted).Wrap()
 					}
 					ui.Row(c).FillWidth().Gap(8).PaddingY(2).Children(func() {
 						keep, keepTip := L("全部保留", "Keep all"), L("改动都留下", "Keep every change")
@@ -478,7 +482,7 @@ func (a *app) unsavedRow(c *ui.Context, proj string, ch checkpoint.Change) {
 		row.Background(t.SurfaceHover)
 	}
 	path := filepath.Join(proj, filepath.FromSlash(ch.Path))
-	row.Tooltip(ch.Path + "\n" + L("这个大文件没有备份：AI 动了它只能看到，撤销不了。", "This large file was not kept: what the AI did shows, and cannot be undone."))
+	row.Tooltip(ch.Path + "\n" + L("大文件没备份，撤销不了。", "A large file not kept: it cannot be undone."))
 	known := false
 	row.ContextMenu(func(m *ui.Menu) {
 		if ch.Status != 'D' && m.Item(L("打开文件", "Open the file")).Chosen() {

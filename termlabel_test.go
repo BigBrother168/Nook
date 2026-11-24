@@ -38,7 +38,7 @@ func TestTermLabelApart(t *testing.T) {
 	}
 	s1, s2, s3 := mk(1), mk(2), mk(3)
 	a.net.ai = map[int]aiUse{1: {tools: []string{"agy"}}, 2: {tools: []string{"codex"}}, 3: {tools: []string{"agy"}}}
-	if got := a.termLabel(s1) + "|" + a.termLabel(s2) + "|" + a.termLabel(s3); got != "Antigravity|Codex|Antigravity 2" {
+	if got := a.termLabel(s1) + "|" + a.termLabel(s2) + "|" + a.termLabel(s3); got != "Antigravity|Codex|Antigravity (2)" {
 		t.Errorf("no titles yet: %q", got)
 	}
 	// Once the conversations have titles, they tell the terminals apart.
@@ -66,12 +66,12 @@ func TestTermNumberStays(t *testing.T) {
 	}
 	a.tabs = append([]*tab{}, tabs...)
 	a.net.ai = map[int]aiUse{1: {tools: []string{"codex"}}, 2: {tools: []string{"codex"}}, 3: {tools: []string{"codex"}}}
-	a.moveTab(tabs[2], tabs[0]) // "Codex 3" dragged to the top
+	a.moveTab(tabs[2], tabs[0]) // "Codex (3)" dragged to the top
 	got := ""
 	for _, tb := range a.tabs {
 		got += a.termLabel(tb.focus) + "|"
 	}
-	if got != "Codex 3|Codex|Codex 2|" {
+	if got != "Codex (3)|Codex|Codex (2)|" {
 		t.Errorf("after the drag: %s", got)
 	}
 }

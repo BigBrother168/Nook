@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"image/png"
 	"io"
 	"os"
@@ -56,8 +57,7 @@ func mainShots(t *testing.T, dir string, en bool) {
 		suffix = "-en"
 	}
 	a := testApp()
-	a.st.Designs = []config.Design{{ID: "blue1", Name: "蓝调", Dark: true, Background: "#0f1729", Surface: "#141e34", Text: "#dce6f8", Muted: "#8494b4", Border: "#24324f", Accent: "#3b82f6", TermBg: "#0f1729", TermFg: "#dce6f8", TitleBar: "#0b1222", Sidebar: "#121b30", TabBar: "#0f1729", Panel: "#121b30", Selection: "#1d3156", TermTheme: "TokyoNight Storm", PanelOpacity: 0.82}}
-	a.st.Palette = "my:blue1"
+	a.st.Palette = "look:aurora" // the README shows Nook in Aurora
 	a.st.SetRequireProxy(true)
 	a.requireSel = true // the switch, as Nook sets it from the setting as it starts
 	proj := `D:\code\my-app`
@@ -86,6 +86,8 @@ func mainShots(t *testing.T, dir string, en bool) {
 	add("my-app", "done", "Antigravity CLI 1.5.14\r\n", "agy", "", "")
 	add("✳ Claude Code", "working", "\x1b[38;5;209m Claude Code\x1b[0m v2.1.330\r\n Opus 5.5 · D:\\code\\my-app\r\n\r\n\x1b[7m> "+L("给首页加个小标题", "add a heading to the home page")+" \x1b[0m\r\n\r\n● "+L("好的，我先看看 index.html 的结构。", "Sure, let me look at index.html first.")+"\r\n\r\n\x1b[38;5;209m* Gallivanting… (5s)\x1b[0m\r\n", "claude", "c3", L("首页小标题", "Home page heading"))
 	a.cur = 2
+	a.group = proj // as opening them would
+	a.picked = termKey(a.tabs[a.cur].focus)
 	for _, h := range []struct{ id, zh, en string }{{"h1", "新建 a.txt", "Create a.txt"}, {"h2", "整理 README", "Tidy the README"}} {
 		conv := config.Conversation{Ref: history.Ref{Tool: "codex", ID: h.id}, Project: proj, Dir: proj, Seen: time.Now().Add(-time.Hour)}
 		a.st.Conversations = append(a.st.Conversations, conv)
@@ -129,9 +131,9 @@ func mainShots(t *testing.T, dir string, en bool) {
 		shotAt("confirm", 1400, 800)
 		a.confirm = nil
 		shotAt("narrow", 900, 700)
-		a.side, a.netOpen = true, true
+		a.side, a.sideTab = true, sideNet
 		shotAt("crowded", 1000, 700)
-		a.side, a.netOpen = false, false
+		a.side = false
 	}
 
 	// For the README: what the AI changed, beside the terminals.
@@ -155,7 +157,7 @@ func mainShots(t *testing.T, dir string, en bool) {
 	}
 
 	// Every AI tool online, all through the proxy.
-	a.side, a.netOpen = false, true
+	a.side, a.sideTab = true, sideNet
 	shotAt("readme-net", 1400, 800)
 
 	// Codex in a PowerShell window outside Nook, started without the
@@ -163,7 +165,7 @@ func mainShots(t *testing.T, dir string, en bool) {
 	outside := otherAI{pid: 9120, name: "codex.exe", parent: "pwsh.exe", cmd: "codex"}
 	outside.routes[netguard.Direct] = 2
 	a.net.others = []otherAI{vscode, outside}
-	a.notice = L("⚠ Nook 外面的 AI 有 2 条连接没走代理，会露出真实 IP（点顶栏看是哪个）", "⚠ AI tools outside Nook have 2 connections around the proxy, showing your real IP (see the top bar)")
+	a.notice = fmt.Sprintf(L("⚠ Nook 外面有 AI 没走代理（%s），真实 IP 可能露了", "⚠ AI outside Nook goes around the proxy (%s): your real IP may show"), conns(2))
 	shotAt("readme-leak", 1400, 800)
 	a.notice = ""
 	a.net.others = []otherAI{vscode}
@@ -186,7 +188,7 @@ func mainShots(t *testing.T, dir string, en bool) {
 	shotAt("readme-guard", 1400, 800)
 	a.tabs = a.tabs[:len(a.tabs)-1]
 	a.cur = 2
-	a.netOpen = false
+	a.side = false
 	a.net.ai, a.net.others, a.net.proxy.Listening = ai, []otherAI{vscode}, true
 
 	// Files and previews, of the demo project when it is there (made up,
@@ -235,6 +237,13 @@ func mainShots(t *testing.T, dir string, en bool) {
 	}}}
 	a.viewing = key
 	shotAt("readme-conv", 1400, 800)
+	a.viewing, a.items = "", nil
+
+	// The looks: the settings over the window, at their appearance.
+	a.openSettings()
+	a.settingsTab = 2
+	shotAt("readme-looks", 1400, 800)
+	a.leavePages()
 }
 
 func mapSet(m map[string]string, k, v string) map[string]string {

@@ -37,9 +37,9 @@ func TestShowTerminal(t *testing.T) {
 	a.openTab("", sh)
 	first := a.focused()
 	a.openTab("", sh)
-	a.viewing, a.viewerMax = "designer", true
+	a.settings, a.viewerMax = "designer", true
 	a.show(first)
-	if a.cur != 0 || a.current().focus != first || a.viewing != "" || a.viewerMax {
+	if a.cur != 0 || a.current().focus != first || a.settings != "" || a.viewerMax {
 		t.Fatalf("cur %d viewing %q max %v", a.cur, a.viewing, a.viewerMax)
 	}
 }

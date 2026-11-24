@@ -137,7 +137,7 @@ func TestShots(t *testing.T) {
 	a.side, a.sideTab = true, 0
 	shot("design-window", a, 1300, 800, nil)
 	a = setup("ocean")
-	a.netOpen = true
+	a.side, a.sideTab = true, sideNet
 	var r netguard.Routes
 	r[netguard.ViaProxy] = 5
 	app := `C:\Program Files\WindowsApps\OpenAI.Codex_26.1117.4957.0_x64__2p2nqsd0c76g0\app\ChatGPT.exe`

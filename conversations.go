@@ -85,9 +85,7 @@ func (a *app) removeConv(r history.Ref) {
 	if len(a.st.Conversations) != n {
 		a.save()
 	}
-	if a.viewing == r.Key() {
-		a.viewing = ""
-	}
+	a.closeItem(r.Key())
 }
 
 // holder returns the open terminal holding conversation r, nil for none.
@@ -133,9 +131,7 @@ func (a *app) resume(c config.Conversation) {
 		a.show(s)
 		return
 	}
-	if a.viewing == c.Key() {
-		a.viewing = "" // it goes on in its terminal
-	}
+	a.closeItem(c.Key()) // it goes on in its terminal
 	dir := dirFor(c.Dir)
 	if dir != c.Dir { // the folder is gone
 		dir = dirFor(c.Project)

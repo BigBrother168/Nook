@@ -290,7 +290,7 @@ func (a *app) setNet(n netState) {
 		}
 	}
 	if d := n.elsewhereDirect(); d > 0 && a.net.elsewhereDirect() == 0 {
-		a.notice = fmt.Sprintf(L("⚠ Nook 外面的 AI 有 %s没走代理，会露出真实 IP（点顶栏看是哪个）", "⚠ AI tools outside Nook have %s around the proxy, showing your real IP (see the top bar)"), conns(d))
+		a.notice = fmt.Sprintf(L("⚠ Nook 外面有 AI 没走代理（%s），真实 IP 可能露了", "⚠ AI outside Nook goes around the proxy (%s): your real IP may show"), conns(d))
 	}
 	// An AI just found in a terminal: the files as it finds them are kept,
 	// for undoing what it changes.
@@ -358,6 +358,9 @@ func (a *app) proxyEnv() []string {
 // terminal's when that says more than the folder or the shell (Claude
 // Code titles itself with the task, agy with the folder), else a number.
 func (a *app) termLabel(s *session) string {
+	if s.name != "" {
+		return s.name // the user's
+	}
 	base := a.termName(s)
 	// Terminals named alike opened before this one: it is the next. By
 	// when they opened, not where they are, so that a number stays with
@@ -369,7 +372,7 @@ func (a *app) termLabel(s *session) string {
 		}
 	}
 	if n > 1 {
-		return base + " " + itoa(n)
+		return base + " (" + itoa(n) + ")" // not "PowerShell 7 2", read as 72
 	}
 	return base
 }

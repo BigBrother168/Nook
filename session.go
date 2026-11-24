@@ -33,6 +33,8 @@ type session struct {
 	status string      // the program's last report (OSC 7501): working, blocked, done, …
 	conv   history.Ref // the AI conversation in it, the latest
 	told   time.Time   // the last notification about it
+	unread bool        // done while out of sight: not looked at since
+	name   string      // the name the user gave it, "" for its own
 	closed bool
 }
 
@@ -203,7 +205,7 @@ func statusText(status string) string {
 	case "blocked":
 		return L("等你确认", "Waiting for you to confirm")
 	case "done":
-		return L("完成了，等你回复", "Done, waiting for your reply")
+		return L("做完了", "Done")
 	case "error":
 		return L("出错了", "Error")
 	}

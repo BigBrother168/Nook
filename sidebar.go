@@ -92,7 +92,7 @@ func (a *app) sidebar(c *ui.Context) {
 				go a.pickProject()
 			}
 			if len(a.st.Projects) == 0 {
-				ui.Text(c, L("项目就是一个文件夹：终端在那里打开，AI 在那里干活。", "A project is a folder: terminals open there, and AI tools work there.")).FontSize(11).TextColor(t.TextMuted)
+				ui.Text(c, L("项目就是一个文件夹，AI 在里面干活", "A project is a folder the AI works in")).FontSize(11).TextColor(t.TextMuted)
 			}
 		})
 	})
@@ -109,11 +109,13 @@ func (a *app) hasProject(path string) bool {
 
 func (a *app) projectRow(c *ui.Context, p config.Project) {
 	t := c.Theme()
-	cur := a.focused()
-	active := cur != nil && cur.proj == p.Path
+	active := a.group == p.Path
 	row := ui.Row(c).FillWidth().PaddingX(8).PaddingY(6).Gap(10).AlignItems(ui.Center).Radius(8).Cursor(ui.CursorPointer)
 	hovered := row.Hovered()
-	if active || hovered {
+	switch {
+	case active && a.picked == "":
+		row.Background(t.Selection) // its card shows
+	case hovered:
 		row.Background(t.SurfaceHover)
 	}
 	row.Tooltip(p.Path)
@@ -153,16 +155,19 @@ func (a *app) projectRow(c *ui.Context, p config.Project) {
 func (a *app) sessionRow(c *ui.Context, s *session) {
 	t := c.Theme()
 	c.Key(s.id)
-	focused := a.focused() == s
-	row := ui.Row(c).FillWidth().Height(30).PaddingStart(18).PaddingEnd(6).Gap(8).AlignItems(ui.Center).Radius(7).Cursor(ui.CursorPointer)
+	// Chosen: the terminal the middle shows, unless a conversation was
+	// picked since.
+	chosen := a.focused() == s && a.picked == termKey(s)
+	row := ui.Row(c).FillWidth().Height(30).PaddingStart(18).PaddingEnd(4).Gap(8).AlignItems(ui.Center).Radius(7).Cursor(ui.CursorPointer)
 	// Dragged up or down, it takes its tab there.
 	tb := a.tabOf(s)
+	away := tb != nil && tb.hidden
 	row.Drag(tb)
 	if row.Dragging() {
 		row.Opacity(0.4) // where it comes from, as its copy follows the pointer
 	}
 	hovered := row.Hovered()
-	if focused {
+	if chosen {
 		row.Background(t.Selection)
 	} else if hovered {
 		row.Background(t.SurfaceHover)
@@ -170,27 +175,36 @@ func (a *app) sessionRow(c *ui.Context, s *session) {
 	// Within its project in the sidebar: dropped on another project's
 	// terminal it would move only in the tab bar.
 	a.dragTarget(c, row, tb, func(from *tab) bool { return a.sideGroup(tabProject(from)) == a.sideGroup(s.proj) })
-	closing := false
+	label := a.termLabel(s)
+	tip := a.termTip(s, label)
+	if away {
+		tip = L("已收起，点一下回来 · ", "Put away; click to bring it back · ") + tip
+	}
+	row.Tooltip(tip)
+	ending, hiding := false, false
 	row.Children(func() {
-		statusDot(c, s.status, iconTerminal)
-		// The name keeps its room; the status gives way.
-		ui.Text(c, a.termLabel(s)).FontSize(12).SingleLine().Shrink(0).MaxWidth(130)
-		if st := statusText(s.status); st != "" {
-			ui.Text(c, st).FontSize(11).TextColor(t.TextMuted).SingleLine().Shrink(1)
+		statusDot(c, s, iconTerminal)
+		txt := ui.Text(c, label).FontSize(12).SingleLine().Shrink(1).Grow(1)
+		if away {
+			txt.TextColor(t.TextMuted)
 		}
-		ui.Spacer(c)
-		if hovered && iconButton(c, iconX, L("关闭终端", "Close the terminal")).Clicked() {
-			closing = true
+		if hovered && iconButton(c, iconStop, L("结束（5 秒内可撤销）", "End (undo within 5 seconds)")).Clicked() {
+			ending = true
 		}
 	})
 	row.ContextMenu(func(m *ui.Menu) {
-		if m.Item(L("关闭终端", "Close the terminal")).Chosen() {
-			closing = true
+		if !away && m.Item(L("收起", "Put away")).Chosen() {
+			hiding = true
+		}
+		if m.Item(L("结束", "End")).Chosen() {
+			ending = true
 		}
 	})
 	switch {
-	case closing:
-		a.closeSession(s)
+	case ending:
+		a.endSession(s)
+	case hiding:
+		a.hideTab(tb)
 	case row.Clicked():
 		a.show(s)
 	}
@@ -240,10 +254,10 @@ func (a *app) convRow(c *ui.Context, conv config.Conversation, group string) {
 	c.Key("c:" + key)
 	row := ui.Column(c).FillWidth().PaddingStart(40).PaddingEnd(8).PaddingY(5).Gap(1).Radius(7).Cursor(ui.CursorPointer)
 	switch {
-	case a.viewing == key:
+	case a.viewing == key && a.picked == key:
 		row.Background(t.Selection)
-	case row.Hovered():
-		row.Background(t.SurfaceHover)
+	case a.viewing == key || row.Hovered():
+		row.Background(t.SurfaceHover) // open beside the terminal chosen
 	}
 	row.Drag(convDrag{conv.Ref, group})
 	if row.Dragging() {
@@ -272,6 +286,6 @@ func (a *app) convRow(c *ui.Context, conv config.Conversation, group string) {
 		}
 	})
 	if row.Clicked() {
-		a.viewing = key
+		a.openConv(key, group)
 	}
 }

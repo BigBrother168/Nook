@@ -28,19 +28,16 @@ func (a *app) paletteItems() []paletteItem {
 		{L("新建终端", "New terminal"), "Ctrl+Shift+T", iconPlus, func() { a.openTab(a.currentProject(), a.defaultShell()) }},
 		{L("向右分屏", "Split right"), "Ctrl+Shift+D", iconSplitRight, func() { a.split(false) }},
 		{L("向下分屏", "Split down"), "Ctrl+Shift+E", iconSplitDown, func() { a.split(true) }},
-		{L("关闭当前终端", "Close this terminal"), "Ctrl+Shift+W", iconX, func() {
-			if s := a.focused(); s != nil {
-				a.closeSession(s)
-			}
-		}},
+		{L("结束当前终端", "End this terminal"), "Ctrl+Shift+W", iconStop, func() { a.endSession(a.focused()) }},
 		{L("添加项目文件夹", "Add a project folder"), "", iconFolderPlus, func() { go a.pickProject() }},
 		{L("显示 / 隐藏左侧栏", "Show / hide the sidebar"), "Ctrl+Shift+S", iconPanelLeft, a.toggleSidebar},
 		{L("在终端里找", "Find in the terminal"), "Ctrl+Shift+F", iconTerminal, a.openFind},
 		{L("设置", "Settings"), "Ctrl+Shift+,", iconSettings, a.openSettings},
-		{L("改动：AI 改了哪些文件，保留或撤销", "Changes: what the AI changed, to keep or undo"), "Ctrl+Shift+B", iconUndo, func() { a.side, a.sideTab = true, 0 }},
-		{L("文件：浏览项目文件", "Files: browse the project"), "", iconFile, func() { a.side, a.sideTab = true, 1 }},
-		{L("预览：打开 localhost 网页", "Previews: open localhost pages"), "", iconGlobe, func() { a.side, a.sideTab = true, 2 }},
-		{L("打开联网面板", "Open the network panel"), L("代理、虚拟网卡、AI 的连接", "Proxy, tunnel, AI connections"), iconGlobe, func() { a.netOpen = true }},
+		{L("终端换个口味", "Terminals: another flavor"), L("这套配色搭的下一种", "the next that goes with the look"), iconPalette, a.nextTermFlavor},
+		{L("改动：AI 改了哪些文件，保留或撤销", "Changes: what the AI changed, to keep or undo"), "Ctrl+Shift+B", iconUndo, func() { a.side, a.sideTab = true, sideChanges }},
+		{L("文件：浏览项目文件", "Files: browse the project"), "", iconFile, func() { a.side, a.sideTab = true, sideFiles }},
+		{L("预览：打开 localhost 网页", "Previews: open localhost pages"), "", iconGlobe, func() { a.side, a.sideTab = true, sidePreviews }},
+		{L("联网：真实 IP 有没有露", "Network: whether your real IP shows"), "", iconGlobe, func() { a.side, a.sideTab = true, sideNet }},
 		{lock, L("联网锁", "Network lock"), iconGlobe, func() { a.toggleLock(); a.syncTray() }},
 	}
 	if a.tray != nil {
@@ -65,7 +62,7 @@ func (a *app) paletteItems() []paletteItem {
 			continue
 		}
 		key := conv.Key()
-		items = append(items, paletteItem{L("对话：", "Conversation: ") + a.convTitle(conv), history.Names(conv.Tool) + L(" · 已关闭 · ", " · closed · ") + conv.Dir, iconHistory, func() { a.viewing = key }})
+		items = append(items, paletteItem{L("对话：", "Conversation: ") + a.convTitle(conv), history.Names(conv.Tool) + L(" · 已关闭 · ", " · closed · ") + conv.Dir, iconHistory, func() { a.openConv(key, a.sideGroup(conv.Project)) }})
 	}
 	return items
 }

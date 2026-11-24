@@ -410,7 +410,13 @@ type fileView struct {
 
 // openFile shows a file in the middle, read on a goroutine.
 func (a *app) openFile(path string) {
-	a.closeFile()
+	// Open already: it shows again, read afresh.
+	for _, it := range a.items {
+		if it.file != nil && it.file.path == path {
+			a.closeItem(it.key)
+			break
+		}
+	}
 	f := &fileView{path: path, kind: fileKind(path)}
 	a.file = f
 	a.viewing = "file:" + path
@@ -645,8 +651,7 @@ func (a *app) filePage(c *ui.Context) {
 // closeMainView goes back from a comparison, a file or a conversation to
 // the terminals.
 func (a *app) closeMainView() {
-	a.closeFile()
-	a.viewing, a.diff, a.file = "", nil, nil
+	a.closeItem(a.viewing)
 	if s := a.focused(); s != nil {
 		a.pendingFocus = s
 	}

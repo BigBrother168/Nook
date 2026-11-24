@@ -5,6 +5,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/ui"
 
 	"nook/core/netguard"
@@ -17,11 +18,20 @@ var (
 
 func requireLabel() string { return L("没有代理时，不让 AI 启动", "No proxy, no AI") }
 
-// topBar shows the project, and the proxy, the AI tools running and the
-// network lock, each a click away from its details or its switch.
+// topBarHeight is the top bar's height, which is the window's title bar.
+const topBarHeight = 38
+
+// topBar is the window's title bar: the project in use, then what matters
+// most, whether the real IP shows, a click away from the network tab, and
+// the network lock. The window's buttons sit at its right; it drags the
+// window.
 func (a *app) topBar(c *ui.Context) {
 	t := c.Theme()
-	ui.Row(c).FillWidth().Height(36).PaddingX(12).Gap(8).AlignItems(ui.Center).Background(a.panelColor(t, "titlebar")).Children(func() {
+	bar := c.TitleBar()
+	bg := a.panelColor(t, "titlebar")
+	a.windowButtons(bg.Over(a.chromeColor(t)))
+	row := ui.Row(c).FillWidth().Height(max(bar.Height, topBarHeight)).PaddingStart(max(bar.Left, 10)).PaddingEnd(bar.Right + 8).Gap(8).AlignItems(ui.Center).Background(bg).DragWindow()
+	row.Children(func() {
 		tip := L("隐藏侧边栏（Ctrl+Shift+S）", "Hide the sidebar (Ctrl+Shift+S)")
 		if a.st.SidebarHidden {
 			tip = L("显示侧边栏（Ctrl+Shift+S）", "Show the sidebar (Ctrl+Shift+S)")
@@ -30,61 +40,79 @@ func (a *app) topBar(c *ui.Context) {
 			a.toggleSidebar()
 		}
 		ui.Text(c, "Nook").FontSize(13).Bold()
-		if s := a.focused(); s != nil && s.proj != "" {
-			ui.Text(c, "— "+a.projectName(s.proj)).FontSize(13).TextColor(t.TextMuted).SingleLine()
+		where := ""
+		if a.group != "" {
+			where = a.projectName(a.group)
+		}
+		if where != "" {
+			ui.Text(c, "— "+where).FontSize(13).TextColor(t.TextMuted).SingleLine().Shrink(1)
 		}
 		ui.Spacer(c)
-
-		col, text := a.proxyStatus(t)
-		if chip(c, col, nil, text, L("代理状态，点开看详情", "The proxy; click for details")).Clicked() {
-			a.netOpen = !a.netOpen
+		col, text, vtip := a.verdict(t)
+		if chip(c, col, nil, text, vtip).Clicked() {
+			a.leavePages()
+			a.toggleSide(sideNet)
 		}
-
-		n, direct := a.net.running()
-		aiTip := L("AI 的连接都走代理，真实 IP 就不会露出去。点开看每个 AI。", "AI tools connecting only through the proxy keep your real IP hidden. Click for each one.")
-		switch elsewhere := a.net.elsewhereDirect(); {
-		case direct > 0:
-			col, text = t.Danger, fmt.Sprintf(L("AI 有直连 · %d 条", "AI going direct · %d"), direct)
-			aiTip = L("有 AI 的连接没走代理，会露出真实 IP。点开看是哪个。", "An AI tool connects around the proxy, showing your real IP. Click to see which.")
-		case elsewhere > 0:
-			col, text = t.Danger, fmt.Sprintf(L("其他 AI 有直连 · %d 条", "AI elsewhere going direct · %d"), elsewhere)
-			aiTip = L("Nook 外面有 AI 的连接没走代理，会露出真实 IP。点开看是哪个。", "An AI tool outside Nook connects around the proxy, showing your real IP. Click to see which.")
-		case n > 0 && a.net.online() == 0:
-			col, text = t.TextMuted, fmt.Sprintf(L("AI 还没联网 · %d", "AI not online yet · %d"), n)
-			aiTip = L("AI 在运行，还没有连接。连上后这里会说走没走代理。", "AI tools run, with no connections yet. Once they connect, this says whether through the proxy.")
-		case n > 0:
-			col, text = t.Success, fmt.Sprintf(L("AI 都走代理 · %d", "AI via proxy · %d"), n)
-		case len(a.net.others) > 0 && a.net.online() > 0:
-			col, text = t.Success, L("AI 都走代理", "AI via proxy")
-		default:
-			col, text = t.TextMuted, L("没有 AI 在运行", "No AI running")
-		}
-		if chip(c, col, nil, text, aiTip).Clicked() {
-			a.netOpen = !a.netOpen
-		}
-
-		lock, lockText, lockCol := iconUnlock, L("联网未锁", "Network unlocked"), t.TextMuted
+		lock, lockCol, lockTip := iconUnlock, t.TextMuted, L("联网锁：锁上后 AI 不能启动", "Network lock: locked, no AI can start")
 		if a.st.Locked {
-			lock, lockText, lockCol = iconLock, L("联网已锁", "Network locked"), t.Danger
+			lock, lockCol, lockTip = iconLock, t.Danger, L("联网已锁，AI 不能启动。点一下解开", "Locked: no AI can start. Click to unlock")
 		}
-		if chip(c, lockCol, lock, lockText, L("锁上后，AI 工具一律不能启动", "Locked, no AI tool can start")).Clicked() {
+		b := ui.ButtonBase(c).Label(lockTip).Padding(6).Radius(7).Tooltip(lockTip)
+		if b.Hovered() {
+			b.Background(t.SurfaceHover)
+		}
+		b.Children(func() { ui.Icon(c, lock).FontSize(15).TextColor(lockCol) })
+		if b.Clicked() {
 			a.toggleLock()
+			a.syncTray()
 		}
 	})
 }
 
-// proxyStatus is the proxy chip's color and words.
-func (a *app) proxyStatus(t *ui.Theme) (ui.Color, string) {
+// windowButtons draws the window's buttons for a title bar of color bg:
+// light on a dark one, dark on a light one.
+func (a *app) windowButtons(bg ui.Color) {
+	want := 2
+	if luminance(bg) < 0.5 {
+		want = 1
+	}
+	if a.win == nil || a.winDark == want {
+		return
+	}
+	a.winDark = want
+	theme := mygo.ThemeLight
+	if want == 1 {
+		theme = mygo.ThemeDark
+	}
+	a.win.SetWindowButtonsTheme(theme)
+}
+
+// verdict is the top bar's word on the network: whether the real IP
+// shows, in color, and the details.
+func (a *app) verdict(t *ui.Theme) (ui.Color, string, string) {
 	p := a.net.proxy
+	tunnel := len(netguard.Carrying(a.net.tunnels)) > 0
+	proxy := L("没用代理", "No proxy")
 	switch {
 	case p.Works():
-		return t.Success, fmt.Sprintf(L("代理已开 · %d", "Proxy on · %d"), p.Port)
-	case len(netguard.Carrying(a.net.tunnels)) > 0:
-		return t.Success, L("虚拟网卡已开", "Tunnel on")
-	case a.st.Requires():
-		return t.Danger, L("代理没开", "Proxy off")
+		proxy = L("代理 ", "Proxy ") + p.Addr()
+	case tunnel:
+		proxy = L("虚拟网卡已开", "Tunnel on")
 	}
-	return t.TextMuted, L("没用代理", "No proxy")
+	n, direct := a.net.running()
+	switch {
+	case direct > 0 || a.net.elsewhereDirect() > 0:
+		return t.Danger, L("真实 IP 可能露了", "Your real IP may show"), L("有 AI 没走代理，点开看是哪个", "An AI goes around the proxy; click to see which")
+	case a.st.Requires() && !p.Works() && !tunnel:
+		return t.Danger, L("代理没开", "Proxy off"), L("没有代理，AI 不能启动", "With no proxy, no AI can start")
+	case a.net.online() > 0:
+		return t.Success, L("真实 IP 没露", "Real IP hidden"), proxy + L(" · AI 都走代理", " · AI all through the proxy")
+	case n > 0:
+		return t.TextMuted, L("AI 还没联网", "AI not online yet"), proxy
+	case p.Works() || tunnel:
+		return t.Success, L("代理已开", "Proxy on"), proxy
+	}
+	return t.TextMuted, L("没用代理", "No proxy"), L("点开看联网", "Click for the network")
 }
 
 // chip is a rounded status in the top bar: a dot (or icon) in col, and
@@ -121,7 +149,7 @@ func (a *app) toggleLock() {
 		a.lockedWeb()
 	}
 	if n, _ := a.net.running(); a.st.Locked && n > 0 {
-		a.netOpen = true
+		a.side, a.sideTab = true, sideNet
 	}
 }
 
@@ -173,121 +201,152 @@ func programName(exe string) string {
 	return strings.TrimSuffix(exe, ".exe")
 }
 
-// netPanel shows the network: the proxy and the tunnel, the switch that
-// keeps AI tools from starting without them, Nook's own connections, and
-// every AI tool's.
-func (a *app) netPanel(c *ui.Context, width float32) {
+// netTab is the right panel's network tab: first whether the real IP
+// shows; the proxy, the tunnel and Nook itself in a line; the switch that
+// keeps AI tools from starting without a proxy; then every AI tool, in
+// Nook and elsewhere, a line each.
+func (a *app) netTab(c *ui.Context) {
 	t := c.Theme()
-	muted := func(s string) { ui.Text(c, s).FontSize(12).TextColor(t.TextMuted).Wrap() }
-	heading := func(s string) { ui.Text(c, s).FontSize(12).Bold().TextColor(t.TextMuted).Margin(12, 0, 2, 0) }
-	line := func(s string, col ui.Color) { ui.Text(c, s).FontSize(13).TextColor(col).Wrap() }
-	ui.Column(c).Width(width).FillHeight().Shrink(0).Background(t.Surface).Children(func() {
-		ui.Row(c).FillWidth().Height(40).PaddingX(14).AlignItems(ui.Center).Children(func() {
-			ui.Text(c, L("联网", "Network")).FontSize(14).Bold()
-			ui.Spacer(c)
-			if iconButton(c, iconX, L("关闭", "Close")).Clicked() {
-				a.netOpen = false
-			}
-		})
-		ui.Scroll(c).Grow(1).FillWidth().Children(func() {
-			ui.Column(c).FillWidth().PaddingX(14).PaddingY(4).Gap(4).Children(func() {
-				a.ipVerdict(c)
-				// status is a line of the panel: a label, and how it is.
-				status := func(label, value string, col ui.Color, tip string) {
-					r := ui.Row(c).FillWidth().PaddingY(5).Gap(10).AlignItems(ui.Center)
-					if tip != "" {
-						r.Tooltip(tip)
-					}
-					r.Children(func() {
-						ui.Text(c, label).FontSize(12).TextColor(t.TextMuted).Width(76).Shrink(0)
-						ui.Text(c, value).FontSize(13).TextColor(col).Grow(1).Shrink(1).Wrap()
-					})
-				}
-				p := a.net.proxy
-				tip, _ := sourceText(p.Source)
-				switch {
-				case p.Port == 0:
-					status(L("代理", "Proxy"), L("没有找到", "Not found"), t.TextMuted, tip)
-				case p.Works():
-					status(L("代理", "Proxy"), L("已开 · ", "On · ")+p.Addr(), t.Success, tip)
-				default:
-					status(L("代理", "Proxy"), L("没开 · ", "Off · ")+p.Addr(), t.Danger, tip)
-				}
-				tun := tunTip(len(netguard.Carrying(a.net.tunnels)) > 0)
-				if len(a.net.tunnels) == 0 {
-					status(L("虚拟网卡", "Tunnel"), L("没开", "Off"), t.TextMuted, tun)
-				}
-				for _, tu := range a.net.tunnels {
-					if tu.Internet {
-						status(L("虚拟网卡", "Tunnel"), L("已开 · ", "On · ")+tu.Name, t.Success, tun)
-					} else {
-						status(L("虚拟网卡", "Tunnel"), L("开着，上网不走它", "On, unused")+" · "+tu.Name, t.TextMuted, tun)
-					}
-				}
-				// Without a tunnel carrying the internet, the advice shows.
-				if len(netguard.Carrying(a.net.tunnels)) == 0 {
-					muted(tun)
-				}
-				if a.net.self == 0 {
-					status(L("Nook 自己", "Nook"), L("不联网", "Offline"), t.Success, L("Nook 自己没有任何连接", "Nook itself has no connections"))
-				} else {
-					status(L("Nook 自己", "Nook"), L("有 ", "")+conns(a.net.self), t.Danger, "")
-				}
-
-				ui.Row(c).FillWidth().Gap(10).AlignItems(ui.Center).Margin(10, 0, 0, 0).Tooltip(L("在国内一定要打开，防止用真实 IP 连出去；在国外不用代理就关掉。有代理时，终端和 AI 都会自动带上它。", "In China keep it on, so that nothing connects from your real IP; outside China without a proxy, turn it off. With a proxy, terminals and AI tools take it on their own.")).Children(func() {
+	heading := func(s, tip string) {
+		h := ui.Text(c, s).FontSize(12).Bold().TextColor(t.TextMuted).Margin(14, 0, 4, 0)
+		if tip != "" {
+			h.Tooltip(tip)
+		}
+	}
+	ui.Scroll(c).Grow(1).FillWidth().Children(func() {
+		ui.Column(c).FillWidth().PaddingX(12).PaddingY(10).Gap(2).Children(func() {
+			a.ipVerdict(c)
+			a.netLine(c)
+			ui.Row(c).FillWidth().Gap(10).AlignItems(ui.Center).Margin(10, 0, 0, 0).Tooltip(L("没有代理也没有虚拟网卡时，AI 不能启动，不会用真实 IP 连出去。在国外不用代理就关掉。", "With no proxy and no tunnel, no AI tool starts, and nothing connects from your real IP. Outside China without a proxy, turn it off.")).Children(func() {
+				ui.Column(c).Grow(1).Shrink(1).Gap(1).Children(func() {
 					// The words switch it too, as a checkbox's label does.
-					if ui.Text(c, requireLabel()).FontSize(13).Grow(1).Cursor(ui.CursorPointer).Clicked() {
+					if ui.Text(c, requireLabel()).FontSize(13).Cursor(ui.CursorPointer).Clicked() {
 						a.requireSel = !a.requireSel
 						a.st.SetRequireProxy(a.requireSel)
 						a.save()
 					}
-					if ui.Switch(c, &a.requireSel).Label(requireLabel()).Changed() {
-						a.st.SetRequireProxy(a.requireSel)
-						a.save()
-					}
+					ui.Text(c, L("防止露出真实 IP", "Keeps your real IP hidden")).FontSize(11).TextColor(t.TextMuted)
 				})
-				muted(L("在国内一定要打开。", "In China, keep it on."))
-
-				heading(L("Nook 里的 AI", "AI tools in Nook"))
-				if len(a.net.ai) == 0 {
-					line(L("没有在运行", "None running"), t.TextMuted)
-				}
-				for _, s := range a.sessions() {
-					u, ok := a.net.ai[s.id]
-					if !ok {
-						continue
-					}
-					c.Key(s.id)
-					row := ui.Column(c).FillWidth().Padding(6, 8).Radius(6).Cursor(ui.CursorPointer).Tooltip(L("一个 AI 会同时开好几条连接：跟模型对话、登录、统计、插件各用各的，所以比对话多；都走代理就没事。点一下跳到这个终端。", "One AI tool keeps several connections at once: the model, signing in, statistics, plugins, each its own; all through the proxy is fine. Click to go to this terminal."))
-					if row.Hovered() {
-						row.Background(t.SurfaceHover)
-					}
-					row.Children(func() {
-						// As the tab and the sidebar call it, and where.
-						ui.Text(c, a.termLabel(s)+" · "+a.projectLabel(s)).FontSize(13).SingleLine()
-						routesLine(c, u.routes)
-					})
-					if row.Clicked() {
-						a.show(s)
-					}
-				}
-				if n, _ := a.net.running(); n > 0 && a.st.Locked {
-					if smallButton(c, L("结束 Nook 里正在运行的 AI", "End the AI tools running in Nook"), false).Clicked() {
-						a.endAI()
-					}
-					muted(L("锁只拦新启动的；已经在运行的，由你决定要不要结束。", "The lock stops new ones only; you decide whether to end those running."))
-				}
-
-				ui.Text(c, L("其他地方的 AI", "AI tools elsewhere")).FontSize(12).Bold().TextColor(t.TextMuted).Margin(12, 0, 2, 0).Tooltip(L("不是 Nook 开的，只能看，管不了。", "Not started by Nook: shown, not controlled."))
-				if len(a.net.others) == 0 {
-					line(L("没有", "None"), t.TextMuted)
-				}
-				for _, g := range groupOthers(a.net.others) {
-					a.otherGroup(c, g)
+				if ui.Switch(c, &a.requireSel).Label(requireLabel()).Changed() {
+					a.st.SetRequireProxy(a.requireSel)
+					a.save()
 				}
 			})
+
+			heading(L("Nook 里的 AI", "AI in Nook"), "")
+			if len(a.net.ai) == 0 {
+				ui.Text(c, L("没有在运行", "None running")).FontSize(12).TextColor(t.TextMuted).PaddingY(4)
+			}
+			for _, s := range a.sessions() {
+				u, ok := a.net.ai[s.id]
+				if !ok {
+					continue
+				}
+				c.Key(s.id)
+				if aiRow(c, a.termLabel(s), a.projectLabel(s), u.routes, L("点一下跳到这个终端", "Click to go to this terminal")).Clicked() {
+					a.show(s)
+				}
+			}
+			if n, _ := a.net.running(); n > 0 && a.st.Locked {
+				if smallButton(c, L("结束 Nook 里的 AI", "End the AI in Nook"), false).Tooltip(L("锁只拦新启动的", "The lock stops new ones only")).Clicked() {
+					a.endAI()
+				}
+			}
+
+			heading(L("其他地方的 AI", "AI elsewhere"), L("不是 Nook 开的：看得见，管不了", "Not started by Nook: shown, not controlled"))
+			if len(a.net.others) == 0 {
+				ui.Text(c, L("没有", "None")).FontSize(12).TextColor(t.TextMuted).PaddingY(4)
+			}
+			for _, g := range groupOthers(a.net.others) {
+				a.otherGroup(c, g)
+			}
 		})
 	})
+}
+
+// netLine says in one line where the proxy is, whether the tunnel is on,
+// and that Nook itself stays offline; more on hover.
+func (a *app) netLine(c *ui.Context) {
+	t := c.Theme()
+	p := a.net.proxy
+	part := func(text string, col ui.Color, tip string) {
+		tx := ui.Text(c, text).FontSize(12).TextColor(col).SingleLine()
+		if tip != "" {
+			tx.Tooltip(tip)
+		}
+	}
+	dot := func() { ui.Text(c, "·").FontSize(12).TextColor(t.TextMuted) }
+	ui.Row(c).FillWidth().Wrap().Gap(6).AlignItems(ui.Center).Padding(4, 2).Children(func() {
+		tip, _ := sourceText(p.Source)
+		switch {
+		case p.Port == 0:
+			part(L("没找到代理", "No proxy found"), t.TextMuted, tip)
+		case p.Works():
+			part(L("代理 ", "Proxy ")+p.Addr(), t.Success, tip)
+		default:
+			part(L("代理没开 ", "Proxy off ")+p.Addr(), t.Danger, tip)
+		}
+		dot()
+		carrying := len(netguard.Carrying(a.net.tunnels)) > 0
+		tun := tunTip(carrying)
+		switch {
+		case carrying:
+			part(L("虚拟网卡已开", "Tunnel on"), t.Success, tun)
+		case len(a.net.tunnels) > 0:
+			part(L("虚拟网卡没在用", "Tunnel unused"), t.TextMuted, tun)
+		default:
+			part(L("虚拟网卡没开", "No tunnel"), t.TextMuted, tun)
+		}
+		dot()
+		if a.net.self == 0 {
+			part(L("Nook 不联网", "Nook offline"), t.Success, L("Nook 自己没有任何连接", "Nook itself has no connections"))
+		} else {
+			part(L("Nook 有 ", "Nook: ")+conns(a.net.self), t.Danger, "")
+		}
+	})
+}
+
+// aiRow is an AI tool in the network tab: its name, where it runs, and
+// its connections at the right, green through the proxy, red direct.
+func aiRow(c *ui.Context, name, where string, r netguard.Routes, tip string) ui.Element {
+	t := c.Theme()
+	row := ui.Row(c).FillWidth().Height(30).PaddingX(8).Gap(8).AlignItems(ui.Center).Radius(6)
+	if tip != "" {
+		row.Cursor(ui.CursorPointer).Tooltip(routesText(r) + L("。", ". ") + tip)
+		if row.Hovered() {
+			row.Background(t.SurfaceHover)
+		}
+	} else {
+		row.Tooltip(routesText(r))
+	}
+	row.Children(func() {
+		ui.Text(c, name).FontSize(13).SingleLine().Shrink(1)
+		if where != "" {
+			ui.Text(c, where).FontSize(11).TextColor(t.TextMuted).SingleLine().Shrink(2)
+		}
+		ui.Spacer(c)
+		countChip(c, r)
+	})
+	return row
+}
+
+// countChip says how many connections, colored by where they go.
+func countChip(c *ui.Context, r netguard.Routes) {
+	t := c.Theme()
+	total := r.Total()
+	proxy, tun := r[netguard.ViaProxy], r[netguard.ViaTUN]
+	col, text := t.TextMuted, L("没连接", "idle")
+	switch {
+	case r[netguard.Direct] > 0:
+		col, text = t.Danger, fmt.Sprintf(L("%d 条 · 直连 %d", "%d · %d direct"), total, r[netguard.Direct])
+	case total > 0 && tun == total:
+		col, text = t.Success, fmt.Sprintf(L("%d 条 · 走虚拟网卡", "%d · via tunnel"), total)
+	case total > 0 && proxy+tun == total:
+		col, text = t.Success, fmt.Sprintf(L("%d 条 · 走代理", "%d · via proxy"), total)
+	case total > 0:
+		text = fmt.Sprintf(L("%d 条 · 连本机", "%d · local"), total)
+	}
+	ui.Text(c, text).FontSize(12).TextColor(col).Shrink(0)
 }
 
 // leak is an AI tool connecting straight out, around the proxy: where
@@ -341,14 +400,14 @@ func (a *app) ipVerdict(c *ui.Context) {
 		if tunOn {
 			card.Tooltip(L("虚拟网卡开着：所有程序的流量都走代理。", "The tunnel is on: every program's traffic goes through the proxy."))
 		} else {
-			card.Tooltip(L("Nook 看的是 TCP 连接。在代理软件里打开 TUN 模式，Nook 看不到的流量也会走代理。", "Nook watches TCP connections. With TUN mode on in your proxy app, what Nook cannot see goes through the proxy too."))
+			card.Tooltip(L("Nook 看的是 TCP 连接；打开 TUN 模式更稳妥", "Nook watches TCP connections; TUN mode is safer still"))
 		}
 	}
 	card.Children(func() {
 		ui.Text(c, title).FontSize(14).Bold().TextColor(col).Wrap()
 		if len(leaks) == 0 {
 			if col == t.Success {
-				ui.Text(c, L("AI 的连接都走代理，没有直连。", "AI tools connect only through the proxy, none direct.")).FontSize(12).TextColor(t.TextMuted).Wrap()
+				ui.Text(c, L("AI 都走代理，没有直连", "AI all through the proxy, none direct")).FontSize(12).TextColor(t.TextMuted).Wrap()
 			}
 			return
 		}
@@ -368,10 +427,10 @@ func (a *app) ipVerdict(c *ui.Context) {
 			a.endAI()
 		}
 		if outside {
-			ui.Text(c, L("Nook 外面的 AI 管不了，可以把它退出。", "AI tools outside Nook are not Nook's to stop; you may quit them.")).FontSize(12).TextColor(t.TextMuted).Wrap()
+			ui.Text(c, L("Nook 外面的 AI 管不了，可以把它退出", "AI outside Nook is not Nook's to stop; quit it")).FontSize(12).TextColor(t.TextMuted).Wrap()
 		}
 		if !tunOn {
-			ui.Text(c, L("在代理软件里打开 TUN 模式，能把这些也兜进代理。", "TUN mode in your proxy app takes these through the proxy too.")).FontSize(12).TextColor(t.TextMuted).Wrap()
+			ui.Text(c, L("打开 TUN 模式，能把这些也兜进代理", "TUN mode takes these through the proxy too")).FontSize(12).TextColor(t.TextMuted).Wrap()
 		}
 	})
 }
@@ -382,7 +441,7 @@ func tunTip(on bool) string {
 	if on {
 		return L("建议一直开着：所有程序都会走代理，比只开代理更稳。", "Keep it on: every program goes through the proxy, more reliably than with the proxy alone.")
 	}
-	return L("建议在代理软件里打开 TUN 模式：所有程序都会走代理，比只开代理更稳。", "Turn on TUN mode in your proxy app: every program goes through the proxy, more reliably than with the proxy alone.")
+	return L("建议在代理软件里打开 TUN 模式，所有程序都走代理", "Turn on TUN mode in your proxy app: every program goes through the proxy")
 }
 
 // routesText says where connections go, in a few words.

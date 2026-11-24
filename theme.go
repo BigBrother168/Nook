@@ -112,6 +112,9 @@ func (a *app) windowTheme(c *ui.Context) *ui.Theme {
 			accent = a.st.Accent
 		}
 		t = th.WithAccent(ui.Hex(accent))
+		// Rows chosen: a little of the accent in the background, soft
+		// enough for any text, as in the user's looks.
+		t.Selection = ui.Hex(p.bg).Mix(ui.Hex(accent), 0.2)
 		if d := a.currentDesign(); d != nil {
 			// The user's look: rows chosen as it says, or softly, so that
 			// any text reads on them.
@@ -155,8 +158,8 @@ func (a *app) termThemes() (*terminal.Theme, *terminal.Theme) {
 				th = &copy
 			}
 		}
-		th.Background, th.Foreground = ui.Hex(d.TermBg), ui.Hex(d.TermFg)
-		th.Cursor, th.Selection = ui.Hex(d.Accent), ui.Hex(d.Accent).Alpha(0.35)
+		th.Background, th.Foreground = colorOr(d.TermBg, d.Background), colorOr(d.TermFg, d.Text)
+		th.Cursor, th.Selection = colorOr(d.Accent, d.Text), colorOr(d.Accent, d.Text).Alpha(0.35)
 		return th, th
 	}
 	p, ok := paletteByID(a.st.Palette)
@@ -178,7 +181,7 @@ func (a *app) termThemes() (*terminal.Theme, *terminal.Theme) {
 
 // applyColors gives the terminals their colors, after a change.
 func (a *app) applyColors() {
-	a.themeCache = nil
+	a.themeCache, a.termBgSet = nil, false
 	light, dark := a.termThemes()
 	for _, s := range a.sessions() {
 		if s.term != nil {

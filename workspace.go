@@ -22,9 +22,10 @@ type pane struct {
 
 // tab is a row of the tab bar: one terminal or several, split.
 type tab struct {
-	id    int
-	root  *pane
-	focus *session // the terminal last focused
+	id     int
+	root   *pane
+	focus  *session // the terminal last focused
+	hidden bool     // put away: off the tab bar, still running, dim in the sidebar
 }
 
 // leaves returns the tab's terminals, in order.
@@ -74,6 +75,155 @@ func (a *app) current() *tab {
 	return a.tabs[a.cur]
 }
 
+// The project in use: the tab bar shows its terminals, and what shows
+// beside them, the right panel and the title are its. Each project keeps
+// the tab chosen last and what showed beside its terminals, which come
+// back as it is chosen again.
+
+// tabGroup is the sidebar group of tab tb: its project, or "" for
+// terminals of no project listed.
+func (a *app) tabGroup(tb *tab) string { return a.sideGroup(tabProject(tb)) }
+
+// shownTabs returns the tabs the tab bar shows: those of the project in
+// use, not put away.
+func (a *app) shownTabs() []*tab {
+	var out []*tab
+	for _, tb := range a.tabs {
+		if !tb.hidden && a.tabGroup(tb) == a.group {
+			out = append(out, tb)
+		}
+	}
+	return out
+}
+
+// choose makes tb the tab in use, its project the one in use, and gives
+// its terminal the focus; a tab put away comes back.
+func (a *app) choose(tb *tab) {
+	if !slices.Contains(a.tabs, tb) {
+		return
+	}
+	tb.hidden = false
+	a.setGroup(a.tabGroup(tb))
+	a.cur = slices.Index(a.tabs, tb)
+	a.remember(tb)
+	if tb.focus != nil {
+		tb.focus.unread = false
+		a.picked = termKey(tb.focus)
+	}
+	a.pendingFocus = tb.focus
+}
+
+// remember keeps tb as the tab its project shows when chosen again.
+func (a *app) remember(tb *tab) {
+	if a.lastTab == nil {
+		a.lastTab = map[string]*tab{}
+	}
+	a.lastTab[a.tabGroup(tb)] = tb
+}
+
+// setGroup makes g the project in use: what showed beside the terminals
+// of the one before is kept, and g's comes back, with the tab it showed.
+func (a *app) setGroup(g string) {
+	if g == a.group {
+		return
+	}
+	a.stashView()
+	a.group = g
+	if g != "" && g != a.st.LastProject {
+		a.st.LastProject = g
+		a.save()
+	}
+	a.restoreView()
+	a.cur = -1
+	if tb := a.lastTab[g]; tb != nil && !tb.hidden && slices.Contains(a.tabs, tb) && a.tabGroup(tb) == g {
+		a.cur = slices.Index(a.tabs, tb)
+	} else if shown := a.shownTabs(); len(shown) > 0 {
+		a.cur = slices.Index(a.tabs, shown[0])
+	}
+	if c := a.current(); c != nil {
+		a.pendingFocus = c.focus
+	}
+}
+
+// fixCurrent keeps the tab in use one the tab bar shows, as projects are
+// added or removed under it.
+func (a *app) fixCurrent() {
+	if c := a.current(); c != nil && !c.hidden && a.tabGroup(c) == a.group {
+		return
+	}
+	a.cur = -1
+	if shown := a.shownTabs(); len(shown) > 0 {
+		a.cur = slices.Index(a.tabs, shown[0])
+	}
+}
+
+// viewState is what a project showed beside its terminals.
+type viewState struct {
+	items   []viewItem
+	viewing string
+	file    *fileView
+	diff    *diffView
+	max     bool
+	hidden  string
+}
+
+// stashView keeps what shows beside the terminals, as the project in use
+// changes.
+func (a *app) stashView() {
+	if a.views == nil {
+		a.views = map[string]viewState{}
+	}
+	a.leavePages()
+	a.views[a.group] = viewState{a.items, a.viewing, a.file, a.diff, a.viewerMax, a.hidden}
+}
+
+// restoreView shows again what the project in use showed beside its
+// terminals.
+func (a *app) restoreView() {
+	v := a.views[a.group]
+	a.items, a.viewing, a.file, a.diff, a.viewerMax, a.hidden = v.items, v.viewing, v.file, v.diff, v.max, v.hidden
+}
+
+// neighbor chooses, in the place of tab gone, which the tab bar showed at
+// index i, the tab now there or the one before; none when no tab of the
+// project shows.
+func (a *app) neighbor(i int) {
+	a.cur = -1
+	shown := a.shownTabs()
+	if len(shown) == 0 {
+		return
+	}
+	tb := shown[min(max(i, 0), len(shown)-1)]
+	a.cur = slices.Index(a.tabs, tb)
+	a.remember(tb)
+	a.pendingFocus = tb.focus
+	if tb.focus != nil && a.picked != "" {
+		a.picked = termKey(tb.focus)
+	}
+}
+
+// hideTab puts tb away: off the tab bar, its terminals running on, dim in
+// the sidebar, where a click brings it back. The first time, Nook says so.
+func (a *app) hideTab(tb *tab) {
+	if tb == nil || tb.hidden {
+		return
+	}
+	i := slices.Index(a.shownTabs(), tb)
+	wasCur := a.current() == tb
+	tb.hidden = true
+	if wasCur {
+		a.neighbor(i)
+	}
+	if !a.st.ToldHide {
+		a.st.ToldHide = true
+		a.save()
+		a.toast(L("收起了，终端还在左栏运行", "Put away: it still runs, in the sidebar"), nil)
+	}
+}
+
+// termKey names terminal s among what the sidebar picks.
+func termKey(s *session) string { return "t:" + itoa(s.id) }
+
 // focused returns the terminal with the focus in the chosen tab.
 func (a *app) focused() *session {
 	if t := a.current(); t != nil {
@@ -110,12 +260,8 @@ func (a *app) openTabIn(proj, dir string, sh shell) *session {
 	a.nextID++
 	t := &tab{id: a.nextID, root: a.newPane(s), focus: s}
 	a.tabs = append(a.tabs, t)
-	a.cur = len(a.tabs) - 1
-	a.pendingFocus = s
-	if proj != a.st.LastProject {
-		a.st.LastProject = proj
-		a.save()
-	}
+	a.leavePages()
+	a.choose(t)
 	return s
 }
 
@@ -124,7 +270,7 @@ func (a *app) openTabIn(proj, dir string, sh shell) *session {
 func (a *app) split(vertical bool) {
 	t := a.current()
 	if t == nil || t.focus == nil {
-		a.openTab(a.st.LastProject, a.defaultShell())
+		a.openTab(a.currentProject(), a.defaultShell())
 		return
 	}
 	old := t.focus
@@ -166,59 +312,129 @@ func (a *app) closeSession(s *session) {
 	if !a.quitting {
 		a.forget(s)
 	}
+	a.dropEnding(s)
+	a.detach(s)
+}
+
+// detached is where a terminal taken out of its tab was: to put it back.
+type detached struct {
+	tb       *tab     // its tab
+	at       int      // the tab's place in a.tabs
+	shown    int      // the tab's place in the tab bar, when it was in use
+	sibling  *session // in a split: a terminal of the other half
+	vertical bool     // the split's direction
+	first    bool     // s was the first half
+	ratio    float32
+	cur      bool // its tab was in use
+}
+
+// detach takes terminal s out of its tab, which goes when left empty, and
+// tells where it was; the terminal runs on.
+func (a *app) detach(s *session) (d detached, ok bool) {
 	for i, t := range a.tabs {
 		leaf, parent := t.root.find(s, nil)
 		if leaf == nil {
 			continue
 		}
+		cur := a.current()
+		d = detached{tb: t, at: i, shown: slices.Index(a.shownTabs(), t), cur: cur == t}
 		if parent == nil {
 			a.tabs = slices.Delete(a.tabs, i, i+1)
-			if a.cur >= len(a.tabs) {
-				a.cur = len(a.tabs) - 1
+			if cur == t {
+				a.neighbor(d.shown)
+			} else if cur != nil {
+				a.cur = slices.Index(a.tabs, cur)
 			}
-			if c := a.current(); c != nil {
-				a.pendingFocus = c.focus
-			}
-			return
+			return d, true
 		}
 		sibling := parent.a
-		if sibling == leaf {
+		d.first = sibling == leaf
+		if d.first {
 			sibling = parent.b
 		}
+		d.vertical, d.ratio = parent.vertical, parent.ratio
 		*parent = *sibling
+		d.sibling = parent.leaves()[0]
 		if t.focus == s {
-			t.focus = parent.leaves()[0]
-			if i == a.cur {
+			t.focus = d.sibling
+			if cur == t {
 				a.pendingFocus = t.focus
 			}
 		}
-		return
+		return d, true
 	}
+	return d, false
 }
 
-// show makes s's tab the chosen one and gives s the focus.
-func (a *app) show(s *session) {
-	for i, t := range a.tabs {
-		if leaf, _ := t.root.find(s, nil); leaf != nil {
-			if a.viewing == "settings" || a.viewing == "designer" {
-				a.viewing = ""
+// attach puts terminal s back where detach took it from, as far as that
+// is still there: beside the terminal it was split with, else in a tab of
+// its own at its tab's place; and shows it.
+func (a *app) attach(s *session, d detached) {
+	if d.sibling != nil && !d.sibling.closed {
+		if t := a.tabOf(d.sibling); t != nil {
+			leaf, _ := t.root.find(d.sibling, nil)
+			mine, other := a.newPane(s), a.newPane(d.sibling)
+			first, second := other, mine
+			if d.first {
+				first, second = mine, other
 			}
-			a.viewerMax = false // the terminal shows, not only a file beside it
-			a.cur = i
+			*leaf = pane{id: leaf.id, vertical: d.vertical, a: first, b: second, ratio: d.ratio}
 			t.focus = s
-			a.pendingFocus = s
+			a.choose(t)
 			return
 		}
 	}
+	t := d.tb
+	if t == nil || slices.Contains(a.tabs, t) || !slices.Equal(t.root.leaves(), []*session{s}) {
+		a.nextID++
+		t = &tab{id: a.nextID, root: a.newPane(s), focus: s}
+	}
+	a.tabs = slices.Insert(a.tabs, min(d.at, len(a.tabs)), t)
+	if c := a.current(); c != nil {
+		a.cur = slices.Index(a.tabs, c)
+	}
+	a.choose(t)
 }
 
-// cycle chooses the next tab (prev for the one before).
-func (a *app) cycle(step int) {
-	if len(a.tabs) == 0 {
+// show makes s's tab the chosen one, its project the one in use, and gives
+// s the focus; a page over the window (the settings) gives way.
+func (a *app) show(s *session) {
+	tb := a.tabOf(s)
+	if tb == nil {
 		return
 	}
-	a.cur = (a.cur + step + len(a.tabs)) % len(a.tabs)
-	a.pendingFocus = a.tabs[a.cur].focus
+	a.leavePages()
+	a.viewerMax = false // the terminal shows, not only a file beside it
+	tb.focus = s
+	a.choose(tb)
+}
+
+// cycle chooses the next tab of the tab bar (prev for the one before).
+func (a *app) cycle(step int) {
+	shown := a.shownTabs()
+	if len(shown) == 0 {
+		return
+	}
+	i := slices.Index(shown, a.current())
+	if i < 0 {
+		i = 0
+	} else {
+		i = (i + step + len(shown)) % len(shown)
+	}
+	a.choose(shown[i])
+}
+
+// goProject makes the project at path the one in use: the tab it showed
+// last, or, with no terminal open there, the project's card, which opens
+// one. Nothing starts unasked.
+func (a *app) goProject(path string) {
+	a.leavePages()
+	a.setGroup(a.sideGroup(path))
+	if c := a.current(); c != nil {
+		a.choose(c)
+	} else {
+		a.picked = ""
+	}
 }
 
 // addProject adds folder dir to the projects, once, and opens a terminal there.
@@ -226,7 +442,7 @@ func (a *app) addProject(dir string) {
 	dir = filepath.Clean(dir)
 	for _, p := range a.st.Projects {
 		if strings.EqualFold(p.Path, dir) {
-			a.openTab(p.Path, a.defaultShell())
+			a.goProject(p.Path)
 			return
 		}
 	}
@@ -246,6 +462,10 @@ func (a *app) removeProject(path string) {
 		a.st.LastProject = ""
 	}
 	a.save()
+	// Its terminals join those of no project.
+	if a.group == path {
+		a.setGroup("")
+	}
 }
 
 func (a *app) defaultShell() shell { return shellByID(a.shells, a.st.DefaultShell) }

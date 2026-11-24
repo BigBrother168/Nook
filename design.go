@@ -35,8 +35,15 @@ type designPart struct {
 	field      func(d *config.Design) *string
 }
 
-// currentDesign is the user's look chosen, if one is.
+// currentDesign is the look chosen, if one is: a ready-made one ("look:"
+// and its id), which the drawing board never changes, or the user's.
 func (a *app) currentDesign() *config.Design {
+	if id, ok := strings.CutPrefix(a.st.Palette, "look:"); ok {
+		if i := presetIndex(id); i >= 0 {
+			return presetLook(i)
+		}
+		return nil
+	}
 	id, ok := strings.CutPrefix(a.st.Palette, "my:")
 	if !ok {
 		return nil
@@ -91,25 +98,36 @@ func (a *app) newDesign(t *ui.Theme) *config.Design {
 		d.TermBg, d.TermFg = hex(th.Background), hex(th.Foreground)
 	}
 	a.st.Designs = append(a.st.Designs, d)
-	a.st.Palette, a.st.Accent = "my:"+d.ID, ""
-	a.applyColors()
+	a.choosePalette("my:" + d.ID)
 	return &a.st.Designs[len(a.st.Designs)-1]
 }
 
-// openDesigner shows the page making a look, for the look chosen, making one
-// when none is.
+// openDesigner shows the drawing board in the settings' dialog, for the
+// look chosen, making one when none is.
 func (a *app) openDesigner(c *ui.Context) {
-	if a.currentDesign() == nil {
+	switch d := a.currentDesign(); {
+	case d == nil:
 		a.newDesign(c.Theme())
+	case strings.HasPrefix(a.st.Palette, "look:"):
+		// A ready-made look stays as it is: the board changes a copy.
+		a.copyDesign(d, L("我的", "My ")+d.Name)
 	}
 	a.designPart = "" // the board starts at the background
-	a.viewing = "designer"
+	a.quickStop, a.designFine = 0, false
+	if a.st.TermTheme != "" {
+		a.st.TermTheme = ""
+		delete(a.st.TermFlavors, a.st.Palette)
+		a.applyColors()
+	}
+	a.designShade = shadeOf(a.currentDesign())
+	a.designFrom = a.settings == "settings"
+	a.settings = "designer"
 }
 
 // designChanged is after an edit of the look: the window and the
 // terminals take it, and it is saved at the next tick.
 func (a *app) designChanged() {
-	a.themeCache = nil
+	a.themeCache, a.termBgSet = nil, false
 	light, dark := a.termThemes()
 	for _, s := range a.sessions() {
 		if s.term != nil {
@@ -153,9 +171,7 @@ func (a *app) windowBackdrop(c *ui.Context, root ui.Element) {
 	if d == nil {
 		return
 	}
-	if d.Gradient != "" {
-		root.Gradient(ui.Hex(d.Background), ui.Hex(d.Gradient), d.GradientAngle)
-	}
+	paintBackground(root, d)
 	if bmp := a.backdrop(d); bmp != nil {
 		img := ui.Image(c, bmp).Absolute().Top(0).Left(0).Right(0).Bottom(0).Fit(ui.Cover).Opacity(d.ImageOpacity).ZIndex(-1)
 		if d.ImageBlur > 0 {

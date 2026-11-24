@@ -214,41 +214,73 @@ func (a *app) onClose(e *mygo.CloseEvent) {
 	case closeQuit:
 		a.quit()
 	default:
-		go a.askClose()
+		a.update(func() {
+			a.showWindow()
+			a.closeAsking, a.closeRemember = true, false
+		})
 	}
 }
 
-// askClose asks whether to put Nook in the tray or to quit.
-func (a *app) askClose() {
-	r, err := mygo.Dialog.Message(mygo.MessageOptions{
-		Parent:        a.win,
-		Type:          mygo.MessageQuestion,
-		Title:         L("关闭 Nook", "Close Nook"),
-		Message:       L("收进托盘，还是退出 Nook？", "Hide Nook in the tray, or quit it?"),
-		Detail:        L("收进托盘：窗口藏起来，终端和 AI 继续运行，点托盘图标就能回来。\n退出 Nook：结束所有终端和 AI。", "Hide in the tray: the window goes, terminals and AI tools go on; click the tray icon to come back.\nQuit Nook: ends every terminal and AI tool."),
-		Buttons:       []string{L("收进托盘", "Hide in the tray"), L("退出 Nook", "Quit Nook"), L("取消", "Cancel")},
-		CancelButton:  2,
-		CheckboxLabel: L("记住我的选择（以后可以在托盘菜单里改）", "Remember my choice (change it in the tray menu)"),
-	})
-	if err != nil || r.Button < 0 || r.Button == 2 {
+// closeDialog asks, as the window's × is clicked, whether to put Nook in
+// the tray or to quit, in the window's own look; each choice says what it
+// does, and can be remembered.
+func (a *app) closeDialog(c *ui.Context) {
+	if !a.closeAsking {
 		return
 	}
-	a.win.Update(func() {
-		action := closeTray
-		if r.Button == 1 {
-			action = closeQuit
-		}
-		if r.CheckboxChecked {
-			a.st.CloseAction = action
-			a.save()
-			a.syncTray()
-		}
-		if action == closeTray {
-			a.toTray()
-		} else {
-			a.quit()
-		}
+	t := c.Theme()
+	open, chosen := true, ""
+	ui.Modal(c, &open, func() {
+		ui.Column(c).Width(360).Gap(10).Children(func() {
+			ui.Text(c, L("关闭 Nook", "Close Nook")).FontSize(15).Bold().Padding(0, 0, 4, 0)
+			option := func(id, title, sub string, first bool) {
+				c.Key(id)
+				b := ui.ButtonBase(c).Label(title).FillWidth().Padding(10, 14).Radius(9).Border(1, t.Border).Justify(ui.Start)
+				switch {
+				case first:
+					b.Background(t.Accent.Alpha(0.14)).Border(1, t.Accent.Alpha(0.55))
+				case b.Hovered():
+					b.Background(t.SurfaceHover)
+				}
+				b.Children(func() {
+					ui.Column(c).Gap(2).Children(func() {
+						ui.Text(c, title).FontSize(13).Bold()
+						ui.Text(c, sub).FontSize(12).TextColor(t.TextMuted)
+					})
+				})
+				if b.Clicked() {
+					chosen = id
+				}
+			}
+			option(closeTray, L("收进托盘", "Hide in the tray"), L("终端和 AI 继续运行", "Terminals and AI keep running"), true)
+			option(closeQuit, L("退出 Nook", "Quit Nook"), L("全部结束", "Everything ends"), false)
+			ui.Row(c).FillWidth().AlignItems(ui.Center).Margin(4, 0, 0, 0).Children(func() {
+				ui.Checkbox(c, &a.closeRemember, L("记住，下次不再问", "Remember; do not ask again"))
+				ui.Spacer(c)
+				if smallButton(c, L("取消", "Cancel"), false).Clicked() {
+					open = false
+				}
+			})
+		})
 	})
+	if !open {
+		a.closeAsking = false
+		return
+	}
+	if chosen == "" {
+		return
+	}
+	a.closeAsking = false
+	if a.closeRemember {
+		a.st.CloseAction = chosen
+		a.save()
+		a.syncTray()
+	}
+	if chosen == closeTray {
+		a.toTray()
+	} else {
+		a.quit()
+	}
 }
 
 // toTray hides the window; the terminals go on.
@@ -258,7 +290,7 @@ func (a *app) toTray() {
 		a.toldTray = true
 		mygo.NewNotification(mygo.NotificationOptions{
 			Title: L("Nook 在托盘里继续运行", "Nook goes on in the tray"),
-			Body:  L("终端和 AI 没有停。点托盘图标回来；要全部结束，在托盘菜单里选“退出 Nook”。", "Terminals and AI tools are still running. Click the tray icon to come back; to end them all, choose “Quit Nook” in its menu."),
+			Body:  L("终端还在运行，点托盘图标回来。", "Terminals keep running; click the tray icon to come back."),
 		}).Show()
 	}
 }
@@ -271,12 +303,12 @@ func (a *app) quit() {
 	}
 	a.quitting = true
 	a.win.Hide()
-	ending := a.aiTerminals(a.sessions())
+	ending := a.aiTerminals(a.everySession())
 	go func() {
 		endGently(ending)
 		a.win.Update(func() {
 			// What pages of the internet kept goes with Nook.
-			if a.web != nil {
+			if a.webStarted {
 				mygo.App.ClearBrowsingData()
 			}
 			mygo.App.Quit()
