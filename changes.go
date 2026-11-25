@@ -591,6 +591,9 @@ func readSmall(path string) ([]byte, error) {
 func (a *app) diffPage(c *ui.Context) {
 	t := c.Theme()
 	d := a.diff
+	if d == nil {
+		return // closed as the frame built
+	}
 	ui.Column(c).Grow(1).FillWidth().Children(func() {
 		ui.Row(c).FillWidth().PaddingX(16).PaddingY(10).Gap(12).AlignItems(ui.Center).Children(func() {
 			ui.Column(c).Grow(1).Gap(2).Children(func() {

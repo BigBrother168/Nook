@@ -1,6 +1,8 @@
 package main
 
 import (
+	"os"
+	"path/filepath"
 	"slices"
 	"testing"
 
@@ -260,5 +262,32 @@ func TestPutAway(t *testing.T) {
 	a.showItem(*a.putAway())
 	if a.viewing != "file:a.md" || a.file.path != "a.md" || a.putAway() != nil {
 		t.Fatalf("back: %q", a.viewing)
+	}
+}
+
+// Closing the only thing open beside the terminals, from its small tab,
+// closes it, and nothing else: the frame building it went on with it
+// gone, and Nook ended.
+func TestCloseOnlyItem(t *testing.T) {
+	a := testApp()
+	proj := t.TempDir()
+	md := filepath.Join(proj, "README.md")
+	os.WriteFile(md, []byte("# Demo\n"), 0o644)
+	a.st.Projects = []config.Project{{Name: "p", Path: proj}}
+	a.file, a.viewing = &fileView{path: md, kind: kindMD, md: "# Demo\n", done: true, size: 7}, "file:"+md
+	tt := ui.NewTester(a.view, 1200, 800)
+	tt.Frame()
+	if len(a.items) != 1 {
+		t.Fatalf("%d open", len(a.items))
+	}
+	r, ok := tt.Find("关闭")
+	if !ok {
+		t.Fatal("no × on the small tab")
+	}
+	tt.ClickAt(r.X+r.W/2, r.Y+r.H/2)
+	tt.Frame()
+	tt.Frame()
+	if len(a.items) != 0 || a.viewerKind() != "" {
+		t.Fatalf("after ×: %d open, %q showing", len(a.items), a.viewerKind())
 	}
 }

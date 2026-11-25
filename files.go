@@ -543,6 +543,9 @@ func sizeText(n int64) string {
 func (a *app) filePage(c *ui.Context) {
 	t := c.Theme()
 	f := a.file
+	if f == nil {
+		return // closed as the frame built
+	}
 	ui.Column(c).Grow(1).FillWidth().Children(func() {
 		ui.Row(c).FillWidth().PaddingX(14).PaddingY(8).Gap(6).AlignItems(ui.Center).Children(func() {
 			icon, col := kindIcon(t, f.kind)

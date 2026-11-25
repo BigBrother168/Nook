@@ -93,13 +93,14 @@ func (a *app) viewerButtons(c *ui.Context) {
 	if a.current() != nil && iconButton(c, icon, tip).Clicked() {
 		a.viewerMax = !a.viewerMax
 	}
+	hide := func() { a.update(a.hideViewer) } // once the frame is built
 	if iconButton(c, iconPutAway, L("收起（Esc）", "Put away (Esc)")).Clicked() {
-		a.hideViewer()
+		hide()
 	}
 	// Esc puts it away, unless a terminal or a field has the keyboard:
 	// their programs take Esc (Claude Code stops with it).
 	if !a.termFocus {
-		c.OnWindowShortcut(0, ui.KeyEscape, a.hideViewer)
+		c.OnWindowShortcut(0, ui.KeyEscape, hide)
 	}
 }
 

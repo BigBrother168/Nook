@@ -425,6 +425,7 @@ func (a *app) previewTab(c *ui.Context, proj string) {
 			ui.Text(c, L("开着的网页", "Pages open")).FontSize(12).Bold().TextColor(t.TextMuted).Padding(8, 0, 0, 2)
 			for _, it := range open {
 				p := it.page
+				closing := false
 				r := row("page:"+p.key(), a.viewing == p.key(), func() {
 					if p.loading {
 						ui.Spinner(c).FontSize(12).TextColor(t.Accent)
@@ -432,12 +433,14 @@ func (a *app) previewTab(c *ui.Context, proj string) {
 						ui.Icon(c, iconGlobe).FontSize(13).TextColor(t.TextMuted)
 					}
 					ui.Text(c, p.name()).FontSize(12).SingleLine().Shrink(1).Grow(1)
-					if iconButton(c, iconX, L("关掉这个网页", "Close this page")).Clicked() {
-						a.closeView(p.key())
-					}
+					closing = iconButton(c, iconX, L("关掉这个网页", "Close this page")).Clicked()
 				})
-				if r.Clicked() {
-					a.showItem(it)
+				switch {
+				case closing:
+					key := p.key()
+					a.update(func() { a.closeView(key) })
+				case r.Clicked():
+					a.update(func() { a.showItem(it) })
 				}
 			}
 			if smallButton(c, L("新开一个网页", "New page"), false).Clicked() {
@@ -469,6 +472,9 @@ func (a *app) previewTab(c *ui.Context, proj string) {
 // back, forward, reload (stop while it loads), its address, a new page.
 func (a *app) browser(c *ui.Context) {
 	p := a.currentPage()
+	if p == nil || p.view.IsDestroyed() {
+		return // closed as the frame built
+	}
 	page := p.view.Page()
 	external := false
 	if u, err := url.Parse(p.url); err == nil {

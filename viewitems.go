@@ -199,11 +199,16 @@ func (a *app) itemTabs(c *ui.Context) {
 			}
 		}
 	})
+	// Closing or showing another changes what the rest of this frame,
+	// already building what shows, would find gone: it waits for the
+	// frame's end.
 	switch {
 	case closing != "":
-		a.closeView(closing)
+		key := closing
+		a.update(func() { a.closeView(key) })
 	case show != nil:
-		a.showItem(*show)
+		it := *show
+		a.update(func() { a.showItem(it) })
 	}
 }
 

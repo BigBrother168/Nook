@@ -126,7 +126,7 @@ type app struct {
 }
 
 // version is Nook's, as mygo.json says.
-const version = "1.5.0"
+const version = "1.5.1"
 
 func main() {
 	// One Nook: opened again, as from the Start menu while it sits in the
@@ -278,5 +278,7 @@ func (r *rawLog) dump(dir string, b []byte) {
 func (a *app) update(fn func()) {
 	if a.win != nil {
 		a.win.Update(fn)
+		return
 	}
+	a.later = append(a.later, fn) // tests: at the next frame
 }
